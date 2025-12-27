@@ -324,7 +324,7 @@
 				let wasmUrl = queryParams.get('module') || 'plugin/basics-1_0_0.wclap.tar.gz';
 				let module = new ClapAudioNode({
 					url: wasmUrl,
-					timerWorklet: true // for more accurate CPU estimate
+//					timerWorklet: true // for more accurate CPU estimate
 				});
 				let pluginId = queryParams.get('plugin') || null;
 				await module.plugins().then(plugins => {

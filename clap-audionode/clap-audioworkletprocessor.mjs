@@ -40,7 +40,9 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 	// specific to this module
 	pluginPtr;
 	
-	running = false;
+	ready = false;
+	readyPromise = null;
+	running = true;
 	routingId;
 	static #cleanup = new FinalizationRegistry(routingId => {
 		delete globalThis.clapRouting[routingId];
@@ -76,6 +78,8 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 			console.error(e);
 			debugger;
 		};
+		let readyFn = null;
+		this.readyPromise = new Promise(pass => (readyFn = pass));
 
 		(async init => {
 			// Create one Host for every AudioNode (for now) - could be global in future
@@ -149,7 +153,8 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 			if (!this.instanceAudioPointers) {
 				throw this.fatalError = Error("Failed to start plugin: " + pluginId);
 			}
-			this.running = true;
+			this.ready = true;
+			readyFn();
 
 			// initial message lists plugin descriptor and remote methods
 			let pluginInfo = this.decodeCbor(hostApi.pluginGetInfo(this.pluginPtr, this.hostedBytes));
@@ -171,6 +176,8 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 				if (requestId == 'timer-sharedArrayBuffer') {
 					return setTimerSharedArrayBuffer(method);
 				}
+				
+				if (!this.ready) await this.readyPromise;
 
 				try {
 					let result = await this.remoteMethods[method].call(this, ...args);
@@ -278,7 +285,7 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 	
 	process(inputs, outputs, parameters) {
 		let jsStartTime = now();
-		if (this.fatalError || !this.running) return false; // outputs are pre-filled with silence
+		if (this.fatalError || !this.running || !this.ready) return false; // outputs are pre-filled with silence
 
 		let blockLength = (outputs[0] || inputs[0])[0].length;
 		

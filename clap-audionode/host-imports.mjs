@@ -29,14 +29,22 @@ export function startThreadWorker(host, threadData) {
 	console.log(`Starting Worker for ${name}`);
 	// Load this module as a Worker
 	let worker = new Worker(import.meta.url, {type: 'module', name: name});
-	worker.postMessage(host.getWorkerData(threadData));
+	let data = host.getWorkerData(threadData);
+	data.threadName = name;
+	worker.postMessage(data);
 	return worker;
 }
 
 if (globalThis.DedicatedWorkerGlobalScope) {
-	addEventListener('message', e => {
-		runThread(e.data, hostImports(), startThreadWorker);
-		console.log("WCLAP thread finished");
+	addEventListener('message', async e => {
+		let data = e.data;
+		console.log(`Thread ready: ${data.threadName}`);
+		try {
+			await runThread(e.data, hostImports(), startThreadWorker);
+			console.log(`Thread finished: ${data.threadName}`);
+		} catch (e) {
+			console.error(`Thread crashed: ${data.threadName}`, e);
+		}
 		close();
 	});
 }

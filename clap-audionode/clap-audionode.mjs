@@ -40,11 +40,11 @@ export default class ClapAudioNode {
 			let workerJs = new Blob([`this.onmessage = e => {`,
 				`console.log("CLAP AudioNode performance timer starting");`,
 				`let dv = new DataView(e.data);`,
-				`while (1) dv.setFloat32(0, performance.now());`,
+				`while (1) dv.setFloat64(0, performance.now());`,
 			`};`], {type: 'application/javascript'});
 			let worker = new Worker(URL.createObjectURL(workerJs), {name: "CLAP AudioNode performance timer"});
 			let buffer = ClapAudioNode.#timerSharedArrayBuffer = new SharedArrayBuffer(8);
-			new DataView(buffer).setFloat32(0, performance.now());
+			new DataView(buffer).setFloat64(0, performance.now());
 			worker.postMessage(buffer);
 		}
 	}

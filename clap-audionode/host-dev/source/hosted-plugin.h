@@ -342,7 +342,7 @@ struct HostedPlugin {
 			processStruct.audio_outputs_count = outputPortCount;
 			processStruct.audio_outputs = audioThreadScope.array<wclap_audio_buffer>(outputPortCount);
 			for (uint32_t p = 0; p < outputPortCount; ++p) {
-				callPlugin(audioPorts.get, p, true, portInfoPtr);
+				callPlugin(audioPorts.get, p, false, portInfoPtr);
 				portInfo = instance->get(portInfoPtr);
 
 				auto channelCount = portInfo.channel_count;
