@@ -24,12 +24,12 @@ export function hostImports() {
 	};
 };
 
-export function startThreadWorker(host, threadData) {
+export function startThreadWorker(host, wclapInit, threadData) {
 	let name = `WCLAP instance 0x${threadData.instancePtr.toString(16)} thread #${threadData.threadId}`;
 	console.log(`Starting Worker for ${name}`);
 	// Load this module as a Worker
 	let worker = new Worker(import.meta.url, {type: 'module', name: name});
-	let data = host.getWorkerData(threadData);
+	let data = host.getWorkerData(wclapInit, threadData);
 	data.threadName = name;
 	worker.postMessage(data);
 	return worker;

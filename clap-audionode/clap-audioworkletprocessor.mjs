@@ -116,14 +116,15 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 				}
 			});
 			
-			this.host = await startHost(init.host, imports, (host, threadData) => {
-				this.port.postMessage(["thread-worker", threadData]);
-				return true;
-			});
+			this.host = await startHost(init.host, imports);
 			let hostApi = this.hostApi = this.host.hostInstance.exports;
 			
 			// This particular WASM module
-			let wclapInstance = await this.host.startWclap(init.wclap);
+			let wclapInstance = await this.host.startWclap(init.wclap, (host, threadData) => {
+				// our AudioNode knows which WCLAP this is for
+				this.port.postMessage(["thread-worker", threadData]);
+				return true;
+			});
 			// Register only if needed
 			this.hostedWclapPtr = init.hostedPtr ?? hostApi.makeHosted(wclapInstance.ptr);
 			this.hostedBytes = hostApi.createBytes(); // TODO: remove this along with destroying the plugin instance

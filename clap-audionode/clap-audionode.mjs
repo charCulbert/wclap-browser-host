@@ -20,18 +20,15 @@ export default class ClapAudioNode {
 		}
 		this.#ready = (async (hostConfigPromise, wclapConfigPromise) => {
 			// We *could* have a common host across all WCLAP modules, but then we'd need to figure out when to de-register them
-			let host = await startHost(await hostConfigPromise, hostImports(), startThreadWorker);
+			let host = await startHost(await hostConfigPromise, hostImports());
 			let wclapConfig = await wclapConfigPromise;
-			let wclap = await host.startWclap(wclapConfig);
 			let api = host.hostInstance.exports;
-			let hostedPtr = api.makeHosted(wclap.ptr); // this specific host's wrapper around an `Instance *`
 			return {
 				host: host,
 				api: api,
 				bytesPtr: api.createBytes(),
-				wclap: wclap,
-				hostedPtr: hostedPtr,
-				files: wclapConfig.files // TODO: we use this for `.getFiles()` but actually that should use the WASI VFS which these are loaded into,
+				wclapConfig: wclapConfig,
+				files: wclapConfig.files // TODO: we use this for `.getFiles()` but actually that should use the WASI VFS which these are loaded into
 			};
 		})(ClapAudioNode.#hostConfigPromise, getWclap(wclapOptions));
 		
@@ -50,7 +47,12 @@ export default class ClapAudioNode {
 	}
 	
 	async plugins() {
-		let {host, api, hostedPtr, bytesPtr} = await this.#ready;
+		let {host, api, wclapConfig, bytesPtr} = await this.#ready;
+		// distinct copy - we're going to register and run it independently of the processor to inspect the plugin list
+		wclapConfig = await getWclap(wclapConfig);
+
+		let wclap = await host.startWclap(wclapConfig);
+		let hostedPtr = api.makeHosted(wclap.ptr); // this specific host's wrapper around an `Instance *`
 
 		let decodeCbor = _ => {
 			let cborPtr = api.getBytesData(bytesPtr);
@@ -62,8 +64,9 @@ export default class ClapAudioNode {
 		};
 		
 		let info = decodeCbor(api.getInfo(hostedPtr, bytesPtr));
-		console.log(info);
+		api.removeHosted(hostedPtr);
 		
+		console.log(info);
 		return info.plugins;
 	}
 	
@@ -85,12 +88,11 @@ export default class ClapAudioNode {
 		}
 		audioContext[this.#moduleAddedToAudioContext] = true;
 
-		let {host, wclap, hostedPtr} = await this.#ready;
+		let {host, wclapConfig} = await this.#ready;
 		nodeOptions.processorOptions = {
-			// These provide enough information
+			// These provide enough information for the processor to load the module and start the plugin
 			host: host.initObj(),
-			wclap: wclap.initObj(),
-			hostedPtr: wclap.shared ? hostedPtr : null,
+			wclap: wclapConfig,
 			pluginId: pluginId
 		};
 
@@ -124,7 +126,7 @@ export default class ClapAudioNode {
 		effectNode.events = Object.create(null);
 		
 		function handleWorkerMessage(data) {
-			if (data?.[0] == 'thread-worker') return startThreadWorker(host, data[1]);
+			if (data?.[0] == 'thread-worker') return startThreadWorker(host, wclapConfig, data[1]);
 			return false;
 		}
 
