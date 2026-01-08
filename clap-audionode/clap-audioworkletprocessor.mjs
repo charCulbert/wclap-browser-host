@@ -127,6 +127,9 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 			});
 			// Register only if needed
 			this.hostedWclapPtr = init.hostedPtr ?? hostApi.makeHosted(wclapInstance.ptr);
+			if (!this.hostedWclapPtr) {
+				throw this.fatalError = Error("Failed to create WCLAP");
+			}
 			this.hostedBytes = hostApi.createBytes(); // TODO: remove this along with destroying the plugin instance
 
 			this.instanceMemory = wclapInstance.memory;
@@ -189,7 +192,7 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 					this.port.postMessage([requestId, e]);
 				}
 			};
-		})(options.processorOptions);
+		})(options.processorOptions).catch(e => failWithError(e));
 	}
 
 	fatalError = null;

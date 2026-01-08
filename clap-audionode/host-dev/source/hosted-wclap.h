@@ -14,6 +14,7 @@ using namespace wclap32;
 // Takes ownership of an Instance
 struct HostedWclap {
 	bool ok = false;
+	const char *reason = nullptr;
 
 	// Host structures
 	wclap_host host;
@@ -181,7 +182,13 @@ struct HostedWclap {
 	}
 
 	HostedWclap(Instance *instance) : instance(instance), arenaPool(instance), globalArena(arenaPool.getOrCreate()) {
-		if (instance->is64()) return;
+		setup();
+	}
+	void setup() {
+		auto failWithError = [&](const char *message){
+			reason = message;
+		};
+		if (instance->is64()) return failWithError("64-bit WCLAP not supported");
 
 		// Set up all the host structures we'll need later
 		// This registers all the host methods, before the instance gets locked by `.init()`
@@ -248,17 +255,20 @@ struct HostedWclap {
 		
 		instance->init();
 		
-		if (!instance->entry32) return;
+		if (!instance->entry32) return failWithError("no clap_entry");
 		auto entry = instance->get(instance->entry32);
 		
 		// Call clap_entry.init();
 		auto scoped = arenaPool.scoped();
-		if (!instance->call(entry.init, scoped.writeString(instance->path()))) return;
+		if (!instance->call(entry.init, scoped.writeString(instance->path()))) return failWithError("clap_entry.init() failed");
 
 		// Get the plugin factory
 		pluginFactoryPtr = instance->call(entry.get_factory, scoped.writeString("clap.plugin-factory"))
 			.cast<wclap_plugin_factory>();
-		if (!pluginFactoryPtr) return;
+		if (!pluginFactoryPtr) {
+			instance->call(entry.deinit);
+			return failWithError("no plugin factory found");
+		}
 
 		ok = true;
 	}
@@ -272,6 +282,7 @@ struct HostedWclap {
 	static HostedWclap * create(Instance *instance) {
 		auto *hosted = new HostedWclap(instance);
 		if (!hosted->ok) {
+			if (hosted->reason) std::cerr << hosted->reason << std::endl;
 			delete hosted;
 			return nullptr;
 		}

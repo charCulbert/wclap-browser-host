@@ -292,7 +292,7 @@
 					(event?.target || document.body).append(span);
 					span.onclick = e => {
 						span.remove();
-						e.preventDefault;
+						e.preventDefault();
 						e.stopPropagation();
 					};
 					setTimeout(_ => span.remove(), 1500);

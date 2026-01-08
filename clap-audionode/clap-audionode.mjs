@@ -53,6 +53,7 @@ export default class ClapAudioNode {
 
 		let wclap = await host.startWclap(wclapConfig);
 		let hostedPtr = api.makeHosted(wclap.ptr); // this specific host's wrapper around an `Instance *`
+		if (!hostedPtr) throw Error("Failed to start WCLAP");
 
 		let decodeCbor = _ => {
 			let cborPtr = api.getBytesData(bytesPtr);
