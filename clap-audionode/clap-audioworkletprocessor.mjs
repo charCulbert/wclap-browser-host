@@ -192,7 +192,7 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 					this.port.postMessage([requestId, e]);
 				}
 			};
-		})(options.processorOptions).catch(e => failWithError(e));
+		})(options.processorOptions).catch(e => this.failWithError(e));
 	}
 
 	fatalError = null;
@@ -200,6 +200,7 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 		debugger;
 		console.error(e);
 		this.fatalError = e;
+		throw e;
 	}
 
 	mainThreadCallback() {

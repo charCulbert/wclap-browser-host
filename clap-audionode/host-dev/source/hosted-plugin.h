@@ -255,6 +255,10 @@ struct HostedPlugin {
 	void getParams(CborWriter &cbor) {
 		auto scoped = arenaPool.scoped();
 		cbor.openArray();
+		if (!paramsExtPtr) {
+			cbor.close();
+			return;
+		}
 
 		wclap_param_info info;
 		auto infoPtr = scoped.copyAcross(info);
