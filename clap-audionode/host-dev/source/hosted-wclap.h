@@ -202,7 +202,7 @@ struct HostedWclap {
 		host.version = globalScoped.writeString("1.0.0");
 		host.get_extension = instance->registerHost32(this, hostGetExtension32);
 		host.request_restart = instance->registerHost32(this, hostRequestRestart32);
-		host.request_process = instance->registerHost32(this, hostRequestRestart32);
+		host.request_process = instance->registerHost32(this, hostRequestProcess32);
 		host.request_callback = instance->registerHost32(this, hostRequestCallback32);
 		inputEvents.ctx = {0};
 		inputEvents.size = instance->registerHost32(this, inputEventsSize32);
