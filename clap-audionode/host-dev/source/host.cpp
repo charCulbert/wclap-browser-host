@@ -3,6 +3,8 @@
 #	define LOG_EXPR(expr) std::cout << #expr " = " << (expr) << std::endl;
 #endif
 
+#include "./common.h"
+
 /*
 	Hosts WCLAP instances, manages plugins, and exports a simpler API for use from JS
 */
@@ -12,73 +14,73 @@
 #include "./cbor-bytes.h"
 
 extern "C" {
-	HostedWclap * makeHosted(Instance *instance) {
+	HostedWclap * WASM_FN(makeHosted)(Instance *instance) {
 		return HostedWclap::create(instance);
 	}
-	void removeHosted(HostedWclap *hosted) {
+	void WASM_FN(removeHosted)(HostedWclap *hosted) {
 		delete hosted;
 	}
-	void getInfo(HostedWclap *hosted, Bytes *bytes) {
+	void WASM_FN(getInfo)(HostedWclap *hosted, Bytes *bytes) {
 		auto cbor = bytes->write();
 		return hosted->getInfo(cbor);
 	}
 
-	HostedPlugin * createPlugin(HostedWclap *hosted, Bytes *bytes) {
+	HostedPlugin * WASM_FN(createPlugin)(HostedWclap *hosted, Bytes *bytes) {
 		auto pluginId = bytes->readString();
 		LOG_EXPR(pluginId);
 		return hosted->createPlugin(pluginId.c_str());
 	}
-	void destroyPlugin(HostedPlugin *plugin) {
+	void WASM_FN(destroyPlugin)(HostedPlugin *plugin) {
 		delete plugin;
 	}
-	void pluginMainThread(HostedPlugin *plugin) {
+	void WASM_FN(pluginMainThread)(HostedPlugin *plugin) {
 		plugin->mainThread();
 	}
-	void pluginGetInfo(HostedPlugin *plugin, Bytes *bytes) {
+	void WASM_FN(pluginGetInfo)(HostedPlugin *plugin, Bytes *bytes) {
 		auto cbor = bytes->write();
 		return plugin->getInfo(cbor);
 	}
-	void pluginMessage(HostedPlugin *plugin, Bytes *bytes) {
+	void WASM_FN(pluginMessage)(HostedPlugin *plugin, Bytes *bytes) {
 		plugin->message(bytes->buffer.data(), bytes->buffer.size());
 	}
-	bool pluginGetResource(HostedPlugin *plugin, Bytes *bytes) {
+	bool WASM_FN(pluginGetResource)(HostedPlugin *plugin, Bytes *bytes) {
 		auto pathStr = bytes->readString();
 		auto cbor = bytes->write();
 		return plugin->getResource(pathStr, cbor);
 	}
-	void pluginGetParams(HostedPlugin *plugin, Bytes *bytes) {
+	void WASM_FN(pluginGetParams)(HostedPlugin *plugin, Bytes *bytes) {
 		auto cbor = bytes->write();
 		plugin->getParams(cbor);
 	}
-	void pluginGetParam(HostedPlugin *plugin, uint32_t paramId, Bytes *bytes) {
+	void WASM_FN(pluginGetParam)(HostedPlugin *plugin, uint32_t paramId, Bytes *bytes) {
 		auto cbor = bytes->write();
 		plugin->getParam(paramId, cbor);
 	}
-	void pluginSetParam(HostedPlugin *plugin, uint32_t paramId, double value) {
+	void WASM_FN(pluginSetParam)(HostedPlugin *plugin, uint32_t paramId, double value) {
 		plugin->setParam(paramId, value);
 	}
-	void pluginParamsFlush(HostedPlugin *plugin) {
+	void WASM_FN(pluginParamsFlush)(HostedPlugin *plugin) {
 		plugin->paramsFlush();
 	}
-	bool pluginStart(HostedPlugin *plugin, double sRate, uint32_t minFrames, uint32_t maxFrames, Bytes *bytes) {
+	bool WASM_FN(pluginStart)(HostedPlugin *plugin, double sRate, uint32_t minFrames, uint32_t maxFrames, Bytes *bytes) {
 		auto cbor = bytes->write();
 		return plugin->start(sRate, minFrames, maxFrames, cbor);
 	}
-	void pluginStop(HostedPlugin *plugin) {
+	void WASM_FN(pluginStop)(HostedPlugin *plugin) {
 		return plugin->stop();
 	}
-	bool pluginAcceptEvent(HostedPlugin *plugin, Bytes *bytes) {
+	bool WASM_FN(pluginAcceptEvent)(HostedPlugin *plugin, Bytes *bytes) {
 		return plugin->acceptEvent(bytes->buffer.data());
 	}
 
-	bool pluginSaveState(HostedPlugin *plugin, Bytes *bytes) {
+	bool WASM_FN(pluginSaveState)(HostedPlugin *plugin, Bytes *bytes) {
 		return plugin->saveState(bytes->buffer);
 	}
-	bool pluginLoadState(HostedPlugin *plugin, Bytes *bytes) {
+	bool WASM_FN(pluginLoadState)(HostedPlugin *plugin, Bytes *bytes) {
 		return plugin->loadState(bytes->buffer);
 	}
 
-	uint32_t pluginProcess(HostedPlugin *plugin, uint32_t blockLength) {
+	uint32_t WASM_FN(pluginProcess)(HostedPlugin *plugin, uint32_t blockLength) {
 		return plugin->process(blockLength);
 	}
 }

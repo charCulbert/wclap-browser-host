@@ -1,5 +1,9 @@
 #pragma once
 
+#ifndef WASM_FN
+#	define WASM_FN(name) __attribute__((export_name(#name))) name
+#endif
+
 // Use `wclap-cpp` and the JS implementation of Instance
 #include "wclap/wclap.hpp"
 #include "wclap/memory-arena.hpp"

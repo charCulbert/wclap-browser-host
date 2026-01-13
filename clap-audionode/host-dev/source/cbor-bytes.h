@@ -4,6 +4,8 @@ The returned structures are thread-local, so they're safe as long as we're not s
 
 #pragma once
 
+#include "./common.h"
+
 #include "cbor-walker/cbor-walker.h"
 #include <vector>
 
@@ -25,10 +27,10 @@ struct Bytes {
 };
 
 extern "C" {
-	Bytes * createBytes();
-	void destroyBytes(Bytes *);
-	unsigned char * getBytesData(Bytes *);
-	size_t getBytesLength(Bytes *);
+	Bytes * WASM_FN(createBytes)();
+	void WASM_FN(destroyBytes)(Bytes *);
+	unsigned char * WASM_FN(getBytesData)(Bytes *);
+	size_t WASM_FN(getBytesLength)(Bytes *);
 	// For passing in bytes as an argument
-	unsigned char * resizeBytes(Bytes *bytes, size_t length);
+	unsigned char * WASM_FN(resizeBytes)(Bytes *bytes, size_t length);
 }
