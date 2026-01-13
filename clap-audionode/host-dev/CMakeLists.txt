@@ -11,7 +11,7 @@ add_executable(host
 	${CMAKE_CURRENT_LIST_DIR}/source/cbor-bytes.cpp
 )
 target_compile_options(host PUBLIC "-fno-exceptions")
-target_link_options(host PUBLIC "-mexec-model=reactor" "-Wl,--max-memory=4294967296")
+target_link_options(host PUBLIC "-mexec-model=reactor" "-Wl,--max-memory=2147483648,--export-table,--growable-table")
 
 # Add wclap-js
 add_subdirectory(../wclap-js "wclap-js-cpp-build")
