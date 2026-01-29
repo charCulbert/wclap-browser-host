@@ -321,7 +321,7 @@
 					location.href = '?' + queryParams;
 				};
 				
-				let wasmUrl = queryParams.get('module') || 'plugin/basics-1_0_0.wclap.tar.gz';
+				let wasmUrl = queryParams.get('module') || 'examples/signalsmith-basics/basics.wclap.tar.gz';
 				let module = new ClapAudioNode({
 					url: wasmUrl,
 //					timerWorklet: true // for more accurate CPU estimate
@@ -382,7 +382,7 @@
 					updateQueryStateTimer = setTimeout(updateQueryState, 100);
 				};
 
-				let extrasModule = new ClapAudioNode("./plugin/example-plugins-wasm32.wclap.tar.gz");
+				let extrasModule = new ClapAudioNode("./examples/signalsmith-clap-cpp/example-plugins.wclap.tar.gz");
 				let keyboardBefore = ['note-effect', 'instrument'].some(feature => effectNode.descriptor.features.indexOf(feature) >= 0);
 				let keyboardAfter = ['note-effect', 'note-detector'].some(feature => effectNode.descriptor.features.indexOf(feature) >= 0);
 				let scopeBefore = ['audio-effect', 'note-detector'].some(feature => effectNode.descriptor.features.indexOf(feature) >= 0);
