@@ -151,6 +151,7 @@ export default class ClapAudioNode {
 				let prevGetResource = effectNode.getResource;
 				effectNode.getResource = async path => {
 					let obj = await prevGetResource(path);
+					if (!obj) return null;
 					// Can't construct Blob in the AudioWorklet, so we translate it here
 					return new Blob([obj.bytes], {type: obj.type});
 				};
