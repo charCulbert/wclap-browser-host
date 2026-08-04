@@ -215,6 +215,59 @@ struct HostedPlugin {
 		cbor.addUtf8("presetLoad");
 		cbor.addBool(bool(presetLoadExtPtr));
 
+		cbor.addUtf8("capabilities");
+		cbor.openMap();
+		auto writeAudioPorts = [&](const char *key, bool isInput) {
+			cbor.addUtf8(key);
+			cbor.openArray();
+			if (audioPortsExtPtr) {
+				auto count = callPlugin(audioPortsExtPtr[&wclap_plugin_audio_ports::count], isInput);
+				auto infoPtr = scoped.array<wclap_audio_port_info>(1);
+				for (uint32_t index = 0; index < count; ++index) {
+					if (!callPlugin(audioPortsExtPtr[&wclap_plugin_audio_ports::get], index, isInput, infoPtr)) continue;
+					auto info = instance->get(infoPtr);
+					cbor.openMap();
+					cbor.addUtf8("id"); cbor.addInt(info.id);
+					cbor.addUtf8("name"); cbor.addUtf8(info.name);
+					cbor.addUtf8("flags"); cbor.addInt(info.flags);
+					cbor.addUtf8("channelCount"); cbor.addInt(info.channel_count);
+					cbor.addUtf8("portType");
+					if (info.port_type) {
+						char portType[256] = {};
+						auto length = instance->countUntil(info.port_type, 0, 255);
+						instance->getArray(info.port_type, portType, length + 1);
+						cbor.addUtf8(portType);
+					} else cbor.addNull();
+					cbor.close();
+				}
+			}
+			cbor.close();
+		};
+		auto writeNotePorts = [&](const char *key, bool isInput) {
+			cbor.addUtf8(key);
+			cbor.openArray();
+			if (notePortsExtPtr) {
+				auto count = callPlugin(notePortsExtPtr[&wclap_plugin_note_ports::count], isInput);
+				auto infoPtr = scoped.array<wclap_note_port_info>(1);
+				for (uint32_t index = 0; index < count; ++index) {
+					if (!callPlugin(notePortsExtPtr[&wclap_plugin_note_ports::get], index, isInput, infoPtr)) continue;
+					auto info = instance->get(infoPtr);
+					cbor.openMap();
+					cbor.addUtf8("id"); cbor.addInt(info.id);
+					cbor.addUtf8("name"); cbor.addUtf8(info.name);
+					cbor.addUtf8("supportedDialects"); cbor.addInt(info.supported_dialects);
+					cbor.addUtf8("preferredDialect"); cbor.addInt(info.preferred_dialect);
+					cbor.close();
+				}
+			}
+			cbor.close();
+		};
+		writeAudioPorts("audioInputs", true);
+		writeAudioPorts("audioOutputs", false);
+		writeNotePorts("noteInputs", true);
+		writeNotePorts("noteOutputs", false);
+		cbor.close();
+
 		cbor.close();
 	}
 	bool loadPreset(uint32_t locationKind, const std::string &location, const std::string &loadKey) {

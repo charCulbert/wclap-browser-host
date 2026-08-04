@@ -1,6 +1,7 @@
 import {getHost, startHost, getWclap} from "./wclap-js/wclap.mjs";
 import {hostImports} from "./host-imports.mjs";
 import CBOR from "./cbor.mjs";
+import {SharedMidiEventQueue} from "./midi-event.mjs";
 
 // For debugging, we sometimes import this module into the main page, and makes that work
 export default null;
@@ -36,6 +37,17 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 	instanceAudioPointers; // pointers to read/write audio in the Instance memory
 	instanceSingleThreaded = true;
 	instancePluginMap = {};
+	midiQueue = null;
+	midiEventCapacity = 2048;
+	midiEventCount = 0;
+	midiTargetFrames = new Float64Array(this.midiEventCapacity);
+	midiSequences = new Uint32Array(this.midiEventCapacity);
+	midiPorts = new Uint16Array(this.midiEventCapacity);
+	midiLengths = new Uint8Array(this.midiEventCapacity);
+	midiData = new Uint8Array(this.midiEventCapacity*3);
+	midiFallbackSequence = 0;
+	midiBytes = new Uint8Array(24);
+	midiBytesView = new DataView(this.midiBytes.buffer);
 
 	// specific to this module
 	pluginPtr;
@@ -82,6 +94,10 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 		this.readyPromise = new Promise(pass => (readyFn = pass));
 
 		(async init => {
+			if (init.midiQueueBuffer) {
+				this.midiQueue = new SharedMidiEventQueue(init.midiQueueBuffer);
+				this.acceptSharedMidiEvent = this.acceptSharedMidiEvent.bind(this);
+			}
 			// Create one Host for every AudioNode (for now) - could be global in future
 			let imports = hostImports();
 			Object.assign(imports.env, {
@@ -200,6 +216,12 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 			// subsequent messages are either proxied method calls, or ArrayBuffer messages from the webview
 			this.port.onmessage = async event => {
 				let data = event.data;
+				if (data?.[0] == "midi") {
+					let bytes = data[1];
+					this.addPendingMidiEvent(data[2], this.midiFallbackSequence++, data[3],
+						bytes.length, bytes[0] ?? 0, bytes[1] ?? 0, bytes[2] ?? 0);
+					return;
+				}
 				if (data instanceof ArrayBuffer) {
 					let bytes = new Uint8Array(data);
 					hostApi.pluginMessage(this.pluginPtr, this.sendBytes(bytes));
@@ -243,6 +265,64 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 			this.hostApi.pluginAcceptEvent(this.pluginPtr, this.sendBytes(bytes));
 		});
 		globalThis.clapRouting[this.routingId].events = [];
+	}
+	acceptSharedMidiEvent(targetFrame, sequence, port, length, byte0, byte1, byte2) {
+		return this.addPendingMidiEvent(targetFrame, sequence, port, length, byte0, byte1, byte2);
+	}
+	addPendingMidiEvent(targetFrame, sequence, port, length, byte0, byte1, byte2) {
+		if (this.midiEventCount >= this.midiEventCapacity) return false;
+		let insertIndex = this.midiEventCount;
+		while (insertIndex > 0) {
+			let previous = insertIndex - 1;
+			if (this.midiTargetFrames[previous] < targetFrame
+				|| (this.midiTargetFrames[previous] === targetFrame
+					&& this.midiSequences[previous] <= sequence)) break;
+			this.copyMidiEvent(previous, insertIndex);
+			insertIndex = previous;
+		}
+		this.midiTargetFrames[insertIndex] = targetFrame;
+		this.midiSequences[insertIndex] = sequence;
+		this.midiPorts[insertIndex] = port;
+		this.midiLengths[insertIndex] = length;
+		this.midiData[insertIndex*3] = byte0;
+		this.midiData[insertIndex*3 + 1] = byte1;
+		this.midiData[insertIndex*3 + 2] = byte2;
+		++this.midiEventCount;
+		return true;
+	}
+	copyMidiEvent(from, to) {
+		this.midiTargetFrames[to] = this.midiTargetFrames[from];
+		this.midiSequences[to] = this.midiSequences[from];
+		this.midiPorts[to] = this.midiPorts[from];
+		this.midiLengths[to] = this.midiLengths[from];
+		this.midiData[to*3] = this.midiData[from*3];
+		this.midiData[to*3 + 1] = this.midiData[from*3 + 1];
+		this.midiData[to*3 + 2] = this.midiData[from*3 + 2];
+	}
+	writePendingMidiEvents(blockLength) {
+		this.midiQueue?.drain(this.acceptSharedMidiEvent);
+		let blockStart = globalThis.currentFrame;
+		let blockEnd = blockStart + blockLength;
+		let dueCount = 0;
+		while (dueCount < this.midiEventCount && this.midiTargetFrames[dueCount] < blockEnd) {
+			let time = Math.min(blockLength - 1,
+				Math.max(0, Math.round(this.midiTargetFrames[dueCount] - blockStart)));
+			this.midiBytes.fill(0);
+			this.midiBytesView.setUint32(0, this.midiBytes.length, true);
+			this.midiBytesView.setUint32(4, time, true);
+			this.midiBytesView.setUint16(10, 10, true); // CLAP_EVENT_MIDI
+			this.midiBytesView.setUint32(12, 1, true); // CLAP_EVENT_IS_LIVE
+			this.midiBytesView.setUint16(16, this.midiPorts[dueCount], true);
+			this.midiBytes[18] = this.midiData[dueCount*3];
+			this.midiBytes[19] = this.midiData[dueCount*3 + 1];
+			this.midiBytes[20] = this.midiData[dueCount*3 + 2];
+			this.hostApi.pluginAcceptEvent(this.pluginPtr, this.sendBytes(this.midiBytes));
+			++dueCount;
+		}
+		for (let index = dueCount; index < this.midiEventCount; ++index) {
+			this.copyMidiEvent(index, index - dueCount);
+		}
+		this.midiEventCount -= dueCount;
 	}
 	
 	eventTargets = {};
@@ -294,6 +374,10 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 			return this.hostApi.pluginLoadPreset(this.pluginPtr, locationKind,
 				this.sendBytes(bytes), locationBytes.length);
 		},
+		clearMidi() {
+			this.midiQueue?.clear();
+			this.midiEventCount = 0;
+		},
 		setParam(paramId, value) {
 			this.hostApi.pluginSetParam(this.pluginPtr, paramId, value);
 
@@ -333,6 +417,7 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 
 		let blockLength = (outputs[0] || inputs[0])[0].length;
 		
+		this.writePendingMidiEvents(blockLength);
 		this.writePendingEvents();
 		
 		// Copy audio input
