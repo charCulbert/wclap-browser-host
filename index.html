@@ -241,7 +241,7 @@
 				}
 
 				let $ = document.querySelector.bind(document);
-				let audioContext = new AudioContext();
+				let audioContext = new AudioContext({latencyHint: 0});
 				let overlay = document.querySelector('#pause-overlay');
 				overlay.showModal();
 				audioContext.addEventListener('statechange', e => {

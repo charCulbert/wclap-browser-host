@@ -1,6 +1,7 @@
 import {getHost, startHost, getWclap} from "./wclap-js/wclap.mjs";
 import {hostImports, startThreadWorker} from "./host-imports.mjs";
 import CBOR from "./cbor.mjs";
+import {midiFrameFromTimestamp, SharedMidiEventQueue} from "./midi-event.mjs";
 
 export default class ClapAudioNode {
 	#moduleAddedToAudioContext = Symbol();
@@ -70,7 +71,7 @@ export default class ClapAudioNode {
 		console.log(info);
 		return info.plugins;
 	}
-	
+
 	async createNode(audioContext, pluginId, nodeOptions) {
 		if (!nodeOptions && typeof pluginId === 'object') { // optional argument
 			nodeOptions = pluginId;
@@ -90,11 +91,14 @@ export default class ClapAudioNode {
 		audioContext[this.#moduleAddedToAudioContext] = true;
 
 		let {host, wclapConfig} = await this.#ready;
+		let midiQueue = globalThis.crossOriginIsolated && typeof SharedArrayBuffer === "function"
+			? new SharedMidiEventQueue() : null;
 		nodeOptions.processorOptions = {
 			// These provide enough information for the processor to load the module and start the plugin
 			host: host.initObj(),
 			wclap: wclapConfig,
-			pluginId: pluginId
+			pluginId: pluginId,
+			midiQueueBuffer: midiQueue?.buffer
 		};
 
 		let effectNode = new AudioWorkletNode(audioContext, 'audioworkletprocessor-clap', nodeOptions);
@@ -134,10 +138,50 @@ export default class ClapAudioNode {
 		return new Promise(resolve => {
 			effectNode.port.onmessage = e => {
 				if (handleWorkerMessage(e.data)) return;
-				let {routingId, desc, methods, webview} = e.data;
+				let {routingId, desc, methods, webview, capabilities} = e.data;
 				effectNode[ClapAudioNode.#routingId] = routingId;
 				effectNode.descriptor = desc;
+				effectNode.capabilities = capabilities || {
+					audioInputs: [], audioOutputs: [], noteInputs: [], noteOutputs: []
+				};
 				methods.forEach(addRemoteMethod);
+				effectNode.midiTransport = midiQueue ? "shared-memory" : "message-port";
+				effectNode.sendMidi = (data, options = {}) => {
+					let timestamp = options.timestamp ?? performance.now();
+					let targetFrame = midiFrameFromTimestamp(audioContext, timestamp);
+					if (midiQueue) {
+						let accepted = midiQueue.push(data, targetFrame, options.port ?? 0);
+						if (!accepted) effectNode.dispatchEvent(new CustomEvent("midi-drop", {
+							detail: {droppedCount: midiQueue.droppedCount}
+						}));
+						return accepted;
+					}
+					effectNode.port.postMessage(["midi", Array.from(data), targetFrame, options.port ?? 0]);
+					return true;
+				};
+				effectNode.sendMIDI = (data, timestamp = performance.now(), port = 0) =>
+					effectNode.sendMidi(data, {timestamp, port});
+				let clearMidiInWorklet = effectNode.clearMidi;
+				effectNode.clearMidi = () => {
+					midiQueue?.clear();
+					return clearMidiInWorklet();
+				};
+				effectNode.attachMidiInput = async (input, options = {}) => {
+					if (!input) throw Error("A MIDIInput is required");
+					if (audioContext.state !== "running") {
+						throw Error("The AudioContext must be running before MIDI input is attached");
+					}
+					await input.open?.();
+					if (input.connection && input.connection !== "open") {
+						throw Error(`Could not open MIDI input: ${input.name || input.id}`);
+					}
+					let listener = event => effectNode.sendMidi(event.data, {
+						timestamp: event.timeStamp || performance.now(),
+						port: options.port ?? 0
+					});
+					input.addEventListener("midimessage", listener);
+					return () => input.removeEventListener("midimessage", listener);
+				};
 				// For [dis]connectEvents, replace the other node with its ID
 				effectNode.connectEvents = (prevMethod => otherNode => {
 					if (otherNode[ClapAudioNode.#routingId] != null) {

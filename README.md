@@ -6,9 +6,41 @@ By default it loads WASM builds of [Signalsmith Basics](https://github.com/Signa
 
 ## AudioWorklet wrapper
 
-The host is built on top of a wrapper (in `clap-audionode/`] which load a single WCLAP as an `AudioNode` (backed by an `AudioWorkletProcessor`).
+The host is built on top of a wrapper in `clap-audionode/` which loads a single
+WCLAP as an `AudioNode` backed by an `AudioWorkletProcessor`.
 
 This is implemented by writing a C++ WCLAP host (see `clap-audionode/host-dev/host.cpp`) which provides a simpler API to the JS nodes.
+
+### MIDI input
+
+The returned `AudioWorkletNode` accepts timestamped MIDI 1 short messages:
+
+```js
+node.sendMidi([0x90, 60, 100], {timestamp: midiMessage.timeStamp, port: 0});
+```
+
+The timestamp uses the DOM performance timeline. The wrapper maps it onto the
+audio-context sample timeline, keeps future messages queued, and writes a
+block-relative CLAP event time when the message becomes due. In a
+cross-origin-isolated page, MIDI records use a `SharedArrayBuffer` queue which
+the AudioWorklet drains at the start of each render block. Other pages fall back
+to `MessagePort` delivery. `node.midiTransport` reports `shared-memory` or
+`message-port`.
+
+Timestamped MIDI uses no intentional lookahead. Pre-scheduled events retain
+sample-exact CLAP offsets. In a 10,000-event external CoreMIDI test at 48 kHz,
+96.39% reached the current render quantum and 3.61% reached the following
+128-frame quantum, with no later events or queue drops. This measures delivery
+from the Web MIDI callback to AudioWorklet visibility, not physical MIDI-to-audio
+output latency.
+
+A host can also attach a Web MIDI input directly, avoiding an intermediate DOM
+event:
+
+```js
+const detach = await node.attachMidiInput(input);
+// Later: detach();
+```
 
 ## C++ and JS library
 
