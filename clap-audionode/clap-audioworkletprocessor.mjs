@@ -103,6 +103,36 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 					let processor = this.instancePluginMap[pluginPtr];
 					processor.port.postMessage(['params_rescan', flags]);
 				},
+				presetLoadError: (pluginPtr, locationKind, locationPtr, locationLength,
+					loadKeyPtr, loadKeyLength, osError, messagePtr, messageLength) => {
+					let processor = this.instancePluginMap[pluginPtr];
+					let decoder = new TextDecoder();
+					let memory = this.instanceMemory.buffer;
+					let read = (ptr, length) => length
+						? decoder.decode(new Uint8Array(memory, ptr, length))
+						: null;
+					processor.port.postMessage(['preset_load_error', {
+						locationKind,
+						location: read(locationPtr, locationLength),
+						loadKey: read(loadKeyPtr, loadKeyLength),
+						osError,
+						message: read(messagePtr, messageLength)
+					}]);
+				},
+				presetLoaded: (pluginPtr, locationKind, locationPtr, locationLength,
+					loadKeyPtr, loadKeyLength) => {
+					let processor = this.instancePluginMap[pluginPtr];
+					let decoder = new TextDecoder();
+					let memory = this.instanceMemory.buffer;
+					let read = (ptr, length) => length
+						? decoder.decode(new Uint8Array(memory, ptr, length))
+						: null;
+					processor.port.postMessage(['preset_loaded', {
+						locationKind,
+						location: read(locationPtr, locationLength),
+						loadKey: read(loadKeyPtr, loadKeyLength)
+					}]);
+				},
 				log: (pluginPtr, severity, msgPtr, length) => {
 					let processor = this.instancePluginMap[pluginPtr];
 					let bytes = new Uint8Array(this.instanceMemory.buffer, msgPtr, length);
@@ -209,7 +239,6 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 	
 	// Hands input events to the plugin, and clears the list
 	writePendingEvents() {
-		let plugin = this.clapPlugin;
 		globalThis.clapRouting[this.routingId].events.forEach(bytes => {
 			this.hostApi.pluginAcceptEvent(this.pluginPtr, this.sendBytes(bytes));
 		});
@@ -254,6 +283,16 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 		loadState(stateArray) {
 			let bytes = new Uint8Array(stateArray);
 			return this.hostApi.pluginLoadState(this.pluginPtr, this.sendBytes(bytes));
+		},
+		loadPreset(locationKind, location, loadKey) {
+			let encoder = new TextEncoder();
+			let locationBytes = encoder.encode(location || "");
+			let loadKeyBytes = encoder.encode(loadKey || "");
+			let bytes = new Uint8Array(locationBytes.length + loadKeyBytes.length);
+			bytes.set(locationBytes);
+			bytes.set(loadKeyBytes, locationBytes.length);
+			return this.hostApi.pluginLoadPreset(this.pluginPtr, locationKind,
+				this.sendBytes(bytes), locationBytes.length);
 		},
 		setParam(paramId, value) {
 			this.hostApi.pluginSetParam(this.pluginPtr, paramId, value);

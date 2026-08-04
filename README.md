@@ -6,9 +6,24 @@ By default it loads WASM builds of [Signalsmith Basics](https://github.com/Signa
 
 ## AudioWorklet wrapper
 
-The host is built on top of a wrapper (in `clap-audionode/`] which load a single WCLAP as an `AudioNode` (backed by an `AudioWorkletProcessor`).
+The host is built on top of a wrapper in `clap-audionode/` which loads a single
+WCLAP as an `AudioNode` backed by an `AudioWorkletProcessor`.
 
 This is implemented by writing a C++ WCLAP host (see `clap-audionode/host-dev/host.cpp`) which provides a simpler API to the JS nodes.
+
+### Preset discovery and loading
+
+When a plug-in implements `clap.preset-load`, the node also exposes:
+
+```js
+const presets = await node.getPresets();
+await node.loadPreset(presets[0]);
+```
+
+`getPresets()` currently enumerates presets declared at
+`CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN`. The lower-level
+`presetDiscovery()` and `presetMetadata()` methods expose the complete provider
+metadata needed for a host to add file-location crawling separately.
 
 ## C++ and JS library
 

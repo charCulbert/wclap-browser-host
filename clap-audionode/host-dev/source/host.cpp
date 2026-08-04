@@ -24,6 +24,19 @@ extern "C" {
 		auto cbor = bytes->write();
 		return hosted->getInfo(cbor);
 	}
+	void WASM_FN(getPresetDiscovery)(HostedWclap *hosted, Bytes *bytes) {
+		auto cbor = bytes->write();
+		hosted->getPresetDiscovery(cbor);
+	}
+	void WASM_FN(getPresetMetadata)(HostedWclap *hosted, uint32_t locationKind,
+		Bytes *bytes, uint32_t providerIdLength) {
+		if (providerIdLength > bytes->buffer.size()) return;
+		auto *data = reinterpret_cast<const char *>(bytes->buffer.data());
+		std::string providerId{data, data + providerIdLength};
+		std::string location{data + providerIdLength, data + bytes->buffer.size()};
+		auto cbor = bytes->write();
+		hosted->getPresetMetadata(providerId, locationKind, location, cbor);
+	}
 
 	HostedPlugin * WASM_FN(createPlugin)(HostedWclap *hosted, Bytes *bytes) {
 		auto pluginId = bytes->readString();
@@ -78,6 +91,14 @@ extern "C" {
 	}
 	bool WASM_FN(pluginLoadState)(HostedPlugin *plugin, Bytes *bytes) {
 		return plugin->loadState(bytes->buffer);
+	}
+	bool WASM_FN(pluginLoadPreset)(HostedPlugin *plugin, uint32_t locationKind,
+		Bytes *bytes, uint32_t locationLength) {
+		if (locationLength > bytes->buffer.size()) return false;
+		auto *data = reinterpret_cast<const char *>(bytes->buffer.data());
+		std::string location{data, data + locationLength};
+		std::string loadKey{data + locationLength, data + bytes->buffer.size()};
+		return plugin->loadPreset(locationKind, location, loadKey);
 	}
 
 	uint32_t WASM_FN(pluginProcess)(HostedPlugin *plugin, uint32_t blockLength) {

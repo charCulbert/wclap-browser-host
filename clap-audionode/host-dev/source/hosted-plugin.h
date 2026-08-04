@@ -13,6 +13,13 @@ __attribute__((import_module("env"), import_name("stateMarkDirty")))
 extern bool pluginStateMarkDirty(const void *plugin);
 __attribute__((import_module("env"), import_name("paramsRescan")))
 extern bool pluginParamsRescan(const void *plugin, uint32_t flags);
+__attribute__((import_module("env"), import_name("presetLoadError")))
+extern void pluginPresetLoadError(const void *plugin, uint32_t locationKind,
+	uint32_t locationPtr, uint32_t locationLength, uint32_t loadKeyPtr,
+	uint32_t loadKeyLength, int32_t osError, uint32_t messagePtr, uint32_t messageLength);
+__attribute__((import_module("env"), import_name("presetLoaded")))
+extern void pluginPresetLoaded(const void *plugin, uint32_t locationKind,
+	uint32_t locationPtr, uint32_t locationLength, uint32_t loadKeyPtr, uint32_t loadKeyLength);
 __attribute__((import_module("env"), import_name("log")))
 extern bool pluginLog(const void *plugin, int32_t severity, uint32_t remotePtr, uint32_t length);
 
@@ -44,6 +51,7 @@ struct HostedPlugin {
 	Pointer<const wclap_plugin_latency> latencyExtPtr;
 	Pointer<const wclap_plugin_note_ports> notePortsExtPtr;
 	Pointer<const wclap_plugin_params> paramsExtPtr;
+	Pointer<const wclap_plugin_preset_load> presetLoadExtPtr;
 	Pointer<const wclap_plugin_state> stateExtPtr;
 	Pointer<const wclap_plugin_tail> tailExtPtr;
 	Pointer<const wclap_plugin_webview> webviewExtPtr;
@@ -164,6 +172,10 @@ struct HostedPlugin {
 		latencyExtPtr = callPlugin(plugin.get_extension, scoped.writeString("clap.latency")).cast<wclap_plugin_latency>();
 		notePortsExtPtr = callPlugin(plugin.get_extension, scoped.writeString("clap.note-ports")).cast<wclap_plugin_note_ports>();
 		paramsExtPtr = callPlugin(plugin.get_extension, scoped.writeString("clap.params")).cast<wclap_plugin_params>();
+		presetLoadExtPtr = callPlugin(plugin.get_extension, scoped.writeString(WCLAP_EXT_PRESET_LOAD)).cast<wclap_plugin_preset_load>();
+		if (!presetLoadExtPtr) {
+			presetLoadExtPtr = callPlugin(plugin.get_extension, scoped.writeString(WCLAP_EXT_PRESET_LOAD_COMPAT)).cast<wclap_plugin_preset_load>();
+		}
 		stateExtPtr = callPlugin(plugin.get_extension, scoped.writeString("clap.state")).cast<wclap_plugin_state>();
 		tailExtPtr = callPlugin(plugin.get_extension, scoped.writeString("clap.tail")).cast<wclap_plugin_tail>();
 		webviewExtPtr = callPlugin(plugin.get_extension, scoped.writeString("clap.webview/3")).cast<wclap_plugin_webview>();
@@ -200,7 +212,31 @@ struct HostedPlugin {
 			cbor.addNull();
 		}
 
+		cbor.addUtf8("presetLoad");
+		cbor.addBool(bool(presetLoadExtPtr));
+
 		cbor.close();
+	}
+	bool loadPreset(uint32_t locationKind, const std::string &location, const std::string &loadKey) {
+		if (!presetLoadExtPtr) return false;
+		auto scoped = arenaPool.scoped();
+		auto locationPtr = location.empty() ? Pointer<const char>{0} : scoped.writeString(location.c_str());
+		auto loadKeyPtr = loadKey.empty() ? Pointer<const char>{0} : scoped.writeString(loadKey.c_str());
+		return callPlugin(presetLoadExtPtr[&wclap_plugin_preset_load::from_location],
+			locationKind, locationPtr, loadKeyPtr);
+	}
+	uint32_t stringLength(Pointer<const char> string) {
+		return string ? instance->countUntil(string, 0, 65535) : 0;
+	}
+	void presetLoadError(uint32_t locationKind, Pointer<const char> location,
+		Pointer<const char> loadKey, int32_t osError, Pointer<const char> message) {
+		pluginPresetLoadError(this, locationKind,
+			location.wasmPointer, stringLength(location), loadKey.wasmPointer, stringLength(loadKey),
+			osError, message.wasmPointer, stringLength(message));
+	}
+	void presetLoaded(uint32_t locationKind, Pointer<const char> location, Pointer<const char> loadKey) {
+		pluginPresetLoaded(this, locationKind,
+			location.wasmPointer, stringLength(location), loadKey.wasmPointer, stringLength(loadKey));
 	}
 	void setParam(wclap_id paramId, double value) {
 		wclap_event_param_value event{

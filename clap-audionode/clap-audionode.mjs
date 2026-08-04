@@ -2,6 +2,13 @@ import {getHost, startHost, getWclap} from "./wclap-js/wclap.mjs";
 import {hostImports, startThreadWorker} from "./host-imports.mjs";
 import CBOR from "./cbor.mjs";
 
+function decodeHostCbor(host, api, bytesPtr) {
+	let cborPtr = api.getBytesData(bytesPtr);
+	let cborLength = api.getBytesLength(bytesPtr);
+	let bytes = new Uint8Array(host.hostMemory.buffer).slice(cborPtr, cborPtr + cborLength);
+	return CBOR.decode(bytes);
+}
+
 export default class ClapAudioNode {
 	#moduleAddedToAudioContext = Symbol();
 
@@ -9,6 +16,7 @@ export default class ClapAudioNode {
 	static #timerSharedArrayBuffer;
 	static #hostConfigPromise;
 	#ready;
+	#presetReady;
 	
 	constructor(wclapOptions) {
 		if (typeof wclapOptions === 'string') wclapOptions = {url: wclapOptions};
@@ -70,6 +78,64 @@ export default class ClapAudioNode {
 		console.log(info);
 		return info.plugins;
 	}
+
+	async #presetHost() {
+		if (!this.#presetReady) {
+			this.#presetReady = (async () => {
+				let {host, api, wclapConfig} = await this.#ready;
+				let presetConfig = await getWclap(wclapConfig);
+				let wclap = await host.startWclap(presetConfig);
+				let hostedPtr = api.makeHosted(wclap.ptr);
+				if (!hostedPtr) throw Error("Failed to start WCLAP preset discovery");
+				return {host, api, hostedPtr, bytesPtr: api.createBytes()};
+			})();
+		}
+		return this.#presetReady;
+	}
+
+	async presetDiscovery() {
+		let {host, api, hostedPtr, bytesPtr} = await this.#presetHost();
+		api.getPresetDiscovery(hostedPtr, bytesPtr);
+		return decodeHostCbor(host, api, bytesPtr);
+	}
+
+	async presetMetadata(providerId, locationKind, location = null) {
+		let {host, api, hostedPtr, bytesPtr} = await this.#presetHost();
+		let encoder = new TextEncoder();
+		let providerBytes = encoder.encode(providerId);
+		let locationBytes = encoder.encode(location || "");
+		let bytes = new Uint8Array(providerBytes.length + locationBytes.length);
+		bytes.set(providerBytes);
+		bytes.set(locationBytes, providerBytes.length);
+		let dataPtr = api.resizeBytes(bytesPtr, bytes.length);
+		new Uint8Array(host.hostMemory.buffer, dataPtr, bytes.length).set(bytes);
+		api.getPresetMetadata(hostedPtr, locationKind, bytesPtr, providerBytes.length);
+		return decodeHostCbor(host, api, bytesPtr);
+	}
+
+	async getPresets(pluginId = null) {
+		let providers = await this.presetDiscovery();
+		let presets = [];
+		for (let provider of providers) {
+			for (let location of provider.locations) {
+				// File-location crawling needs a browser/WASI filesystem index, and is deliberately separate.
+				if (location.kind !== 1) continue;
+				let result = await this.presetMetadata(provider.id, location.kind, location.location);
+				if (!result.success) continue;
+				result.presets.forEach(preset => {
+					let applies = !pluginId || preset.pluginIds.length === 0
+						|| preset.pluginIds.some(id => id.abi === "clap" && id.id === pluginId);
+					if (applies) presets.push({
+						providerID: provider.id,
+						locationKind: location.kind,
+						location: location.location,
+						...preset
+					});
+				});
+			}
+		}
+		return presets;
+	}
 	
 	async createNode(audioContext, pluginId, nodeOptions) {
 		if (!nodeOptions && typeof pluginId === 'object') { // optional argument
@@ -125,6 +191,10 @@ export default class ClapAudioNode {
 
 		// Hacky event-handling: add a named function to this map
 		effectNode.events = Object.create(null);
+		effectNode.events.preset_loaded = detail => effectNode.dispatchEvent(
+			new CustomEvent("preset-loaded", {detail}));
+		effectNode.events.preset_load_error = detail => effectNode.dispatchEvent(
+			new CustomEvent("preset-load-error", {detail}));
 		
 		function handleWorkerMessage(data) {
 			if (data?.[0] == 'thread-worker') return startThreadWorker(host, wclapConfig, data[1]);
@@ -134,10 +204,15 @@ export default class ClapAudioNode {
 		return new Promise(resolve => {
 			effectNode.port.onmessage = e => {
 				if (handleWorkerMessage(e.data)) return;
-				let {routingId, desc, methods, webview} = e.data;
+				let {routingId, desc, methods, webview, presetLoad} = e.data;
 				effectNode[ClapAudioNode.#routingId] = routingId;
 				effectNode.descriptor = desc;
+				effectNode.supportsPresetLoad = presetLoad;
 				methods.forEach(addRemoteMethod);
+				let loadPresetFromLocation = effectNode.loadPreset;
+				effectNode.getPresets = () => this.getPresets(effectNode.descriptor.id);
+				effectNode.loadPreset = preset => loadPresetFromLocation(
+					preset.locationKind, preset.location, preset.loadKey);
 				// For [dis]connectEvents, replace the other node with its ID
 				effectNode.connectEvents = (prevMethod => otherNode => {
 					if (otherNode[ClapAudioNode.#routingId] != null) {

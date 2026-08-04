@@ -11,7 +11,7 @@ cmake . -B cmake-build -DCMAKE_TOOLCHAIN_FILE=$(WASI_SDK)/share/cmake/wasi-sdk-p
 And then build it with:
 
 ```sh
-cmake --build cmake-build --target wclap-host --config Release
+cmake --build cmake-build --target host --config Release
 ```
 
 This will output `../host.wasm`.
