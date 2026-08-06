@@ -292,11 +292,11 @@ struct HostedPlugin {
 		pluginPresetLoaded(this, locationKind,
 			location.wasmPointer, stringLength(location), loadKey.wasmPointer, stringLength(loadKey));
 	}
-	void setParam(wclap_id paramId, double value) {
+	void setParamAtTime(wclap_id paramId, double value, uint32_t sampleOffset) {
 		wclap_event_param_value event{
 			.header={
 				.size=sizeof(wclap_event_param_value),
-				.time=0,
+				.time=sampleOffset,
 				.space_id=WCLAP_CORE_EVENT_SPACE_ID,
 				.type=WCLAP_EVENT_PARAM_VALUE,
 				.flags=WCLAP_EVENT_IS_LIVE
@@ -312,6 +312,9 @@ struct HostedPlugin {
 			.value=value
 		};
 		addEvent32(&event.header);
+	}
+	void setParam(wclap_id paramId, double value) {
+		setParamAtTime(paramId, value, 0);
 	}
 	void getParam(wclap_id paramId, CborWriter &cbor) {
 		auto scoped = arenaPool.scoped();

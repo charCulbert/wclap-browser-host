@@ -72,6 +72,9 @@ extern "C" {
 	void WASM_FN(pluginSetParam)(HostedPlugin *plugin, uint32_t paramId, double value) {
 		plugin->setParam(paramId, value);
 	}
+	void WASM_FN(pluginSetParamAtTime)(HostedPlugin *plugin, uint32_t paramId, double value, uint32_t sampleOffset) {
+		plugin->setParamAtTime(paramId, value, sampleOffset);
+	}
 	void WASM_FN(pluginParamsFlush)(HostedPlugin *plugin) {
 		plugin->paramsFlush();
 	}
