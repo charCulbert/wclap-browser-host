@@ -2,7 +2,7 @@
 
 #include "./common.h"
 
-#include <algorithm> // we need stable_sort
+#include <algorithm>
 #include <atomic>
 
 __attribute__((import_module("env"), import_name("eventsOutTryPush")))
@@ -65,6 +65,7 @@ struct HostedPlugin {
 	std::vector<size_t> pendingEventStarts;
 	struct CopiedEvent {
 		uint32_t time;
+		size_t sequence;
 		Pointer<wclap_event_header> pointer;
 	};
 	std::vector<CopiedEvent> copiedInputEventPtrs;
@@ -99,7 +100,7 @@ struct HostedPlugin {
 		// Copy bytes across, store remote pointer
 		auto eventPtr = scoped.reserve(event->size, alignof(wclap_event_header));
 		instance->setArray(eventPtr.cast<unsigned char>(), (unsigned char *)event, event->size);
-		copiedInputEventPtrs.push_back(CopiedEvent{event->time, eventPtr.cast<wclap_event_header>()});
+		copiedInputEventPtrs.push_back(CopiedEvent{event->time, pendingIndex, eventPtr.cast<wclap_event_header>()});
 		
 		// Remove start from the list
 		pendingEventStarts.erase(pendingEventStarts.begin() + pendingIndex);
@@ -110,8 +111,8 @@ struct HostedPlugin {
 	}
 	void sortCopiedEvents() {
 		std::unique_lock<std::recursive_mutex> lock{pendingEventsMutex};
-		std::stable_sort(copiedInputEventPtrs.begin(), copiedInputEventPtrs.end(), [](const CopiedEvent &a, const CopiedEvent &b){
-			return a.time < b.time;
+		std::sort(copiedInputEventPtrs.begin(), copiedInputEventPtrs.end(), [](const CopiedEvent &a, const CopiedEvent &b){
+			return a.time < b.time || (a.time == b.time && a.sequence < b.sequence);
 		});
 	}
 	void clearEvents() {
@@ -522,6 +523,7 @@ struct HostedPlugin {
 		sortCopiedEvents();
 		
 		callPlugin(paramsExtPtr[&wclap_plugin_params::flush], inputEventsPtr, outputEventsPtr);
+		copiedInputEventPtrs.clear();
 	}
 
 	void hostRequestRestart() {
