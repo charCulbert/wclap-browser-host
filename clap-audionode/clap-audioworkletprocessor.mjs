@@ -1,7 +1,12 @@
 import {getHost, startHost, getWclap} from "./wclap-js/wclap.mjs";
 import {hostImports} from "./host-imports.mjs";
 import CBOR from "./cbor.mjs";
-import {SharedMidiEventQueue} from "./midi-event.mjs";
+import {parameterValueForMidiCC, SharedMidiEventQueue} from "./midi-event.mjs";
+
+const midiMappingChannelCount = 16;
+const midiMappingCCCount = 128;
+const invalidParamId = 0xffffffff;
+const mappedValueReportCapacity = 16;
 
 // For debugging, we sometimes import this module into the main page, and makes that work
 export default null;
@@ -49,6 +54,25 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 	midiBytes = new Uint8Array(24);
 	midiBytesView = new DataView(this.midiBytes.buffer);
 
+	// This table is read from the render path. Mapping updates arrive through the
+	// control port and become active on the following render quantum.
+	midiMappingParamIds = new Uint32Array(midiMappingChannelCount*midiMappingCCCount);
+	midiMappingMins = new Float64Array(midiMappingChannelCount*midiMappingCCCount);
+	midiMappingMaxs = new Float64Array(midiMappingChannelCount*midiMappingCCCount);
+	midiMappingFlags = new Uint32Array(midiMappingChannelCount*midiMappingCCCount);
+	midiMappingEffectiveFrames = new Float64Array(midiMappingChannelCount*midiMappingCCCount);
+	omniMidiMappingParamIds = new Uint32Array(midiMappingCCCount);
+	omniMidiMappingMins = new Float64Array(midiMappingCCCount);
+	omniMidiMappingMaxs = new Float64Array(midiMappingCCCount);
+	omniMidiMappingFlags = new Uint32Array(midiMappingCCCount);
+	omniMidiMappingEffectiveFrames = new Float64Array(midiMappingCCCount);
+	mappedValueReportCount = 0;
+	mappedValueReportParamIds = new Uint32Array(mappedValueReportCapacity);
+	mappedValueReportValues = new Float64Array(mappedValueReportCapacity);
+	mappedValueReportBuffer = new ArrayBuffer(4 + mappedValueReportCapacity*12);
+	mappedValueReportView = new DataView(this.mappedValueReportBuffer);
+	mappedValueReportNextFrame = 0;
+
 	// specific to this module
 	pluginPtr;
 	
@@ -86,6 +110,10 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 	
 	constructor(options) {
 		super();
+		this.midiMappingParamIds.fill(invalidParamId);
+		this.midiMappingEffectiveFrames.fill(Infinity);
+		this.omniMidiMappingParamIds.fill(invalidParamId);
+		this.omniMidiMappingEffectiveFrames.fill(Infinity);
 		this.port.onmessageerror = e => {
 			console.error(e);
 			debugger;
@@ -302,24 +330,132 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 		this.midiData[to*3 + 1] = this.midiData[from*3 + 1];
 		this.midiData[to*3 + 2] = this.midiData[from*3 + 2];
 	}
+	midiMappingEffectiveFrame() {
+		let currentFrame = Number(globalThis.currentFrame);
+		return (Number.isFinite(currentFrame) ? currentFrame : 0) + this.maxFramesCount;
+	}
+	setMidiCCMapping(mapping = {}) {
+		let channel = Number.isInteger(mapping.channel) ? mapping.channel : -1;
+		let cc = Number(mapping.cc);
+		let paramId = Number(mapping.paramId);
+		let min = Number(mapping.min);
+		let max = Number(mapping.max);
+		if ((channel !== -1 && (channel < 0 || channel >= midiMappingChannelCount))
+			|| !Number.isInteger(cc) || cc < 0 || cc >= midiMappingCCCount
+			|| !Number.isInteger(paramId) || paramId < 0 || paramId >= invalidParamId
+			|| !Number.isFinite(min) || !Number.isFinite(max) || max < min) {
+			throw new RangeError("Invalid MIDI CC mapping");
+		}
+
+		let flags = Number.isInteger(mapping.flags) ? mapping.flags >>> 0 : 0;
+		let effectiveFrame = this.midiMappingEffectiveFrame();
+		if (channel === -1) {
+			this.omniMidiMappingParamIds[cc] = paramId;
+			this.omniMidiMappingMins[cc] = min;
+			this.omniMidiMappingMaxs[cc] = max;
+			this.omniMidiMappingFlags[cc] = flags;
+			this.omniMidiMappingEffectiveFrames[cc] = effectiveFrame;
+		} else {
+			let slot = channel*midiMappingCCCount + cc;
+			this.midiMappingParamIds[slot] = paramId;
+			this.midiMappingMins[slot] = min;
+			this.midiMappingMaxs[slot] = max;
+			this.midiMappingFlags[slot] = flags;
+			this.midiMappingEffectiveFrames[slot] = effectiveFrame;
+		}
+		return {effectiveFrame};
+	}
+	clearMidiCCMapping(mapping = {}) {
+		let channel = Number.isInteger(mapping.channel) ? mapping.channel : -1;
+		let cc = Number(mapping.cc);
+		if ((channel !== -1 && (channel < 0 || channel >= midiMappingChannelCount))
+			|| !Number.isInteger(cc) || cc < 0 || cc >= midiMappingCCCount) {
+			throw new RangeError("Invalid MIDI CC mapping");
+		}
+
+		let effectiveFrame = this.midiMappingEffectiveFrame();
+		if (channel === -1) {
+			this.omniMidiMappingParamIds[cc] = invalidParamId;
+			this.omniMidiMappingEffectiveFrames[cc] = effectiveFrame;
+		} else {
+			let slot = channel*midiMappingCCCount + cc;
+			this.midiMappingParamIds[slot] = invalidParamId;
+			this.midiMappingEffectiveFrames[slot] = effectiveFrame;
+		}
+		return {effectiveFrame};
+	}
+	recordMappedValue(paramId, value) {
+		for (let index = 0; index < this.mappedValueReportCount; ++index) {
+			if (this.mappedValueReportParamIds[index] === paramId) {
+				this.mappedValueReportValues[index] = value;
+				return;
+			}
+		}
+		if (this.mappedValueReportCount >= mappedValueReportCapacity) return;
+		let index = this.mappedValueReportCount++;
+		this.mappedValueReportParamIds[index] = paramId;
+		this.mappedValueReportValues[index] = value;
+	}
+	postMappedValues() {
+		let currentFrame = Number(globalThis.currentFrame);
+		if (!this.mappedValueReportCount || !Number.isFinite(currentFrame)
+			|| currentFrame < this.mappedValueReportNextFrame) return;
+
+		this.mappedValueReportView.setUint32(0, this.mappedValueReportCount, true);
+		for (let index = 0; index < this.mappedValueReportCount; ++index) {
+			let offset = 4 + index*12;
+			this.mappedValueReportView.setUint32(offset, this.mappedValueReportParamIds[index], true);
+			this.mappedValueReportView.setFloat64(offset + 4, this.mappedValueReportValues[index], true);
+		}
+		this.port.postMessage(["mapped-param-values", this.mappedValueReportBuffer]);
+		this.mappedValueReportCount = 0;
+		this.mappedValueReportNextFrame = currentFrame + sampleRate*0.05;
+	}
 	writePendingMidiEvents(blockLength) {
 		this.midiQueue?.drain(this.acceptSharedMidiEvent);
 		let blockStart = globalThis.currentFrame;
 		let blockEnd = blockStart + blockLength;
 		let dueCount = 0;
 		while (dueCount < this.midiEventCount && this.midiTargetFrames[dueCount] < blockEnd) {
+			let targetFrame = this.midiTargetFrames[dueCount];
 			let time = Math.min(blockLength - 1,
-				Math.max(0, Math.round(this.midiTargetFrames[dueCount] - blockStart)));
+				Math.max(0, Math.round(targetFrame - blockStart)));
 			this.midiBytes.fill(0);
 			this.midiBytesView.setUint32(0, this.midiBytes.length, true);
 			this.midiBytesView.setUint32(4, time, true);
 			this.midiBytesView.setUint16(10, 10, true); // CLAP_EVENT_MIDI
 			this.midiBytesView.setUint32(12, 1, true); // CLAP_EVENT_IS_LIVE
 			this.midiBytesView.setUint16(16, this.midiPorts[dueCount], true);
-			this.midiBytes[18] = this.midiData[dueCount*3];
+			let status = this.midiData[dueCount*3];
+			let cc = this.midiData[dueCount*3 + 1];
+			let ccValue = this.midiData[dueCount*3 + 2];
+			this.midiBytes[18] = status;
 			this.midiBytes[19] = this.midiData[dueCount*3 + 1];
 			this.midiBytes[20] = this.midiData[dueCount*3 + 2];
 			this.hostApi.pluginAcceptEvent(this.pluginPtr, this.sendBytes(this.midiBytes));
+
+			if (this.midiLengths[dueCount] === 3 && (status & 0xf0) === 0xb0
+				&& cc < midiMappingCCCount && ccValue < midiMappingCCCount) {
+				let channel = status & 0x0f;
+				let slot = channel*midiMappingCCCount + cc;
+				let paramId = this.midiMappingParamIds[slot];
+				let min = this.midiMappingMins[slot];
+				let max = this.midiMappingMaxs[slot];
+				let flags = this.midiMappingFlags[slot];
+				if (paramId === invalidParamId || targetFrame < this.midiMappingEffectiveFrames[slot]) {
+					paramId = this.omniMidiMappingParamIds[cc];
+					min = this.omniMidiMappingMins[cc];
+					max = this.omniMidiMappingMaxs[cc];
+					flags = this.omniMidiMappingFlags[cc];
+					if (paramId === invalidParamId
+						|| targetFrame < this.omniMidiMappingEffectiveFrames[cc]) paramId = invalidParamId;
+				}
+				if (paramId !== invalidParamId) {
+					let value = parameterValueForMidiCC(ccValue, min, max, flags);
+					this.hostApi.pluginSetParamAtTime(this.pluginPtr, paramId, value, time);
+					this.recordMappedValue(paramId, value);
+				}
+			}
 			++dueCount;
 		}
 		for (let index = dueCount; index < this.midiEventCount; ++index) {
@@ -380,6 +516,12 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 		clearMidi() {
 			this.midiQueue?.clear();
 			this.midiEventCount = 0;
+		},
+		setMidiCCMapping(mapping) {
+			return this.setMidiCCMapping(mapping);
+		},
+		clearMidiCCMapping(mapping) {
+			return this.clearMidiCCMapping(mapping);
 		},
 		setParam(paramId, value) {
 			this.hostApi.pluginSetParam(this.pluginPtr, paramId, value);
@@ -467,6 +609,7 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 				});
 			}
 		});
+		this.postMappedValues();
 
 		let jsEndTime = now();
 

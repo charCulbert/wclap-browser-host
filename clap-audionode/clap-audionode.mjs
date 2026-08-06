@@ -250,6 +250,17 @@ export default class ClapAudioNode {
 					effectNode.port.postMessage(["midi", Array.from(data), targetFrame, options.port ?? 0]);
 					return true;
 				};
+				let setMidiCCMappingInWorklet = effectNode.setMidiCCMapping;
+				effectNode.setMidiCCMapping = mapping => setMidiCCMappingInWorklet({
+					...mapping,
+					channel: mapping?.channel ?? -1,
+					flags: mapping?.flags ?? 0,
+				});
+				let clearMidiCCMappingInWorklet = effectNode.clearMidiCCMapping;
+				effectNode.clearMidiCCMapping = mapping => clearMidiCCMappingInWorklet({
+					...mapping,
+					channel: mapping?.channel ?? -1,
+				});
 				effectNode.sendMIDI = (data, timestamp = performance.now(), port = 0) =>
 					effectNode.sendMidi(data, {timestamp, port});
 				let clearMidiInWorklet = effectNode.clearMidi;

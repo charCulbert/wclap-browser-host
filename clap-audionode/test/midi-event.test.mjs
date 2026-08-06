@@ -2,11 +2,33 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+	CLAP_PARAM_IS_STEPPED,
+	isMidiCC,
 	midiEventBytes,
+	midiCCChannel,
+	midiCCNumber,
+	midiCCValue,
 	midiEventsForBlock,
 	midiFrameFromTimestamp,
+	parameterValueForMidiCC,
 	SharedMidiEventQueue,
 } from '../midi-event.mjs';
+
+test('recognises channel voice CC messages', () => {
+	let data = [0xb3, 74, 96];
+	assert.equal(isMidiCC(data), true);
+	assert.equal(midiCCChannel(data[0]), 3);
+	assert.equal(midiCCNumber(data), 74);
+	assert.equal(midiCCValue(data), 96);
+	assert.equal(isMidiCC([0x90, 60, 100]), false);
+});
+
+test('maps CC values across a parameter range', () => {
+	assert.equal(parameterValueForMidiCC(0, -1, 1), -1);
+	assert.equal(parameterValueForMidiCC(127, -1, 1), 1);
+	assert.equal(parameterValueForMidiCC(64, 0, 10), 64/127*10);
+	assert.equal(parameterValueForMidiCC(64, 0, 7, CLAP_PARAM_IS_STEPPED), 4);
+});
 
 test('encodes a live CLAP MIDI event', () => {
 	let bytes = midiEventBytes([0x90, 60, 100], 23, 2);

@@ -74,6 +74,7 @@
     #plugin-panel,
     #preset-panel,
     #parameter-panel[hidden],
+    #mapping-panel[hidden],
     #plugin-panel[hidden],
     #preset-panel[hidden] { display: none; }
     #plugin-panel,
@@ -109,7 +110,8 @@
       border-radius: 8px;
       background: #171717;
     }
-    #parameter-panel {
+    #parameter-panel,
+    #mapping-panel {
       display: grid;
       gap: 10px;
       padding: 12px;
@@ -117,7 +119,8 @@
       border-radius: 8px;
       background: #202020;
     }
-    #parameter-panel h2 {
+    #parameter-panel h2,
+    #mapping-panel h2 {
       margin: 0;
       font-size: 0.8rem;
       font-weight: 600;
@@ -128,6 +131,33 @@
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 10px 18px;
     }
+    #mapping-controls {
+      display: grid;
+      gap: 8px;
+    }
+    .mapping-row {
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) 76px 68px auto auto auto minmax(150px, 1fr);
+      align-items: center;
+      gap: 6px;
+      color: #ddd;
+      font-size: 0.8rem;
+    }
+    .mapping-row select,
+    .mapping-row input,
+    .mapping-row button {
+      min-height: 28px;
+      border: 1px solid #555;
+      border-radius: 4px;
+      background: #252525;
+      color: #ddd;
+      font: inherit;
+    }
+    .mapping-row button { cursor: pointer; padding: 2px 8px; }
+    .mapping-row button:focus-visible,
+    .mapping-row select:focus-visible,
+    .mapping-row input:focus-visible { outline: 2px solid #8ee3b2; outline-offset: 1px; }
+    .mapping-status { color: #aaa; }
     compost-slider {
       --slider-panel-bg: transparent;
       --slider-color: #ddd;
@@ -179,6 +209,10 @@
     <section id="parameter-panel" aria-label="Parameters" hidden>
       <h2>Parameters</h2>
       <div id="parameters"></div>
+    </section>
+    <section id="mapping-panel" aria-label="MIDI mappings" hidden>
+      <h2>MIDI CC mappings</h2>
+      <div id="mapping-controls"></div>
     </section>
   </main>
   <audio id="input-audio" src="./audio/loop.mp3" loop crossorigin="anonymous"></audio>

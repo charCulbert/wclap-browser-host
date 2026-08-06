@@ -13,6 +13,31 @@ export function midiFrameFromTimestamp(audioContext, timestamp = performance.now
 	return Math.max(0, Math.round(targetTime*audioContext.sampleRate));
 }
 
+export const CLAP_PARAM_IS_STEPPED = 1 << 0;
+
+export function isMidiCC(data) {
+	return data?.length === 3 && (data[0] & 0xf0) === 0xb0
+		&& data[1] >= 0 && data[1] <= 127 && data[2] >= 0 && data[2] <= 127;
+}
+
+export function midiCCChannel(status) {
+	return status & 0x0f;
+}
+
+export function midiCCNumber(data) {
+	return data[1];
+}
+
+export function midiCCValue(data) {
+	return data[2];
+}
+
+export function parameterValueForMidiCC(ccValue, min, max, flags = 0) {
+	let value = min + (max - min)*(ccValue/127);
+	if (flags & CLAP_PARAM_IS_STEPPED) value = Math.round(value);
+	return value;
+}
+
 export function midiEventsForBlock(events, blockStart, blockLength) {
 	let blockEnd = blockStart + blockLength;
 	let due = [], remaining = [];
