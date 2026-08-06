@@ -27,8 +27,8 @@ archive with `?module=<url>`:
 /?module=examples/fixtures/webclap/signalsmith-clap-cpp/example-plugins.wclap.tar.gz
 ```
 
-That archive exercises multi-plugin discovery and selection. The static
-example is at:
+When an archive exposes multiple plug-ins, the Compost host renders a selector
+for them. The static example is at:
 
 ```text
 /examples/static/
@@ -81,7 +81,7 @@ No Emscripten toolchain is required.
 ## Fixtures
 
 `examples/public/` contains the two char example archives used by the static
-and dynamic examples. `examples/fixtures/webclap/` contains the upstream
-Basics, Clack, AssemblyScript, and multi-plugin WCLAP fixtures used for browser
+and dynamic examples. `examples/fixtures/webclap/` contains upstream Basics,
+Clack, AssemblyScript, and Signalsmith WCLAP fixtures used for browser
 regression testing. Their original license and source files are retained next
 to each fixture.
