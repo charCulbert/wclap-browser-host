@@ -45,7 +45,7 @@ WCLAP behavior in the existing `ClapAudioNode` API:
 - multiple plug-ins per archive and plug-in selection;
 - plug-in WebView/resource loading;
 - generic Compost parameter controls;
-- presets and state save/restore/share;
+- presets and session-backed state save/restore;
 - Web MIDI input with timestamped delivery;
 - audio input, file loading, and drag-and-drop;
 - AudioWorklet CPU measurements.

@@ -7,6 +7,8 @@ const midiMappingChannelCount = 16;
 const midiMappingCCCount = 128;
 const invalidParamId = 0xffffffff;
 const mappedValueReportCapacity = 16;
+const clapCoreEventSpace = 0;
+const clapEventParamGestureBegin = 7;
 
 // For debugging, we sometimes import this module into the main page, and makes that work
 export default null;
@@ -138,6 +140,7 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 					let processor = this.instancePluginMap[pluginPtr];
 					let bytes = new Uint8Array(this.instanceMemory.buffer, ptr, length).slice();
 					processor.outputEvent(bytes);
+					return 1;
 				},
 				stateMarkDirty: (pluginPtr) => {
 					let processor = this.instancePluginMap[pluginPtr];
@@ -466,6 +469,18 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 	
 	eventTargets = {};
 	outputEvent(eventBytes) {
+		if (eventBytes.length >= 20
+			&& eventBytes[8] === clapCoreEventSpace
+			&& eventBytes[9] === 0
+			&& eventBytes[10] === clapEventParamGestureBegin
+			&& eventBytes[11] === 0) {
+			const paramId = (eventBytes[16]
+				| (eventBytes[17] << 8)
+				| (eventBytes[18] << 16)
+				| (eventBytes[19] << 24)) >>> 0;
+			this.port.postMessage(['param_gesture_begin', paramId]);
+		}
+
 		for (let key in this.eventTargets) {
 			if (globalThis.clapRouting[key]) {
 				globalThis.clapRouting[key].events.push(eventBytes);
@@ -522,6 +537,23 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 		},
 		clearMidiCCMapping(mapping) {
 			return this.clearMidiCCMapping(mapping);
+		},
+		setParamMappingIndication(mapping) {
+			const label = String(mapping?.label ?? '');
+			const description = String(mapping?.description ?? '');
+			const encoder = new TextEncoder();
+			const labelBytes = encoder.encode(label);
+			const descriptionBytes = encoder.encode(description);
+			const bytes = new Uint8Array(labelBytes.length + descriptionBytes.length);
+			bytes.set(labelBytes);
+			bytes.set(descriptionBytes, labelBytes.length);
+			return this.hostApi.pluginSetParamMappingIndication(
+				this.pluginPtr,
+				Number(mapping?.paramId),
+				Boolean(mapping?.hasMapping),
+				this.sendBytes(bytes),
+				labelBytes.length,
+			);
 		},
 		setParam(paramId, value) {
 			this.hostApi.pluginSetParam(this.pluginPtr, paramId, value);

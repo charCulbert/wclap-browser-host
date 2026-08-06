@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <string>
 
 __attribute__((import_module("env"), import_name("eventsOutTryPush")))
 extern bool pluginOutputEventsTryPush32(const void *plugin, uint32_t remotePtr, uint32_t length);
@@ -52,6 +53,7 @@ struct HostedPlugin {
 	Pointer<const wclap_plugin_note_ports> notePortsExtPtr;
 	Pointer<const wclap_plugin_params> paramsExtPtr;
 	Pointer<const wclap_plugin_preset_load> presetLoadExtPtr;
+	Pointer<const wclap_plugin_param_indication> paramIndicationExtPtr;
 	Pointer<const wclap_plugin_state> stateExtPtr;
 	Pointer<const wclap_plugin_tail> tailExtPtr;
 	Pointer<const wclap_plugin_webview> webviewExtPtr;
@@ -176,6 +178,10 @@ struct HostedPlugin {
 		presetLoadExtPtr = callPlugin(plugin.get_extension, scoped.writeString(WCLAP_EXT_PRESET_LOAD)).cast<wclap_plugin_preset_load>();
 		if (!presetLoadExtPtr) {
 			presetLoadExtPtr = callPlugin(plugin.get_extension, scoped.writeString(WCLAP_EXT_PRESET_LOAD_COMPAT)).cast<wclap_plugin_preset_load>();
+		}
+		paramIndicationExtPtr = callPlugin(plugin.get_extension, scoped.writeString(WCLAP_EXT_PARAM_INDICATION)).cast<wclap_plugin_param_indication>();
+		if (!paramIndicationExtPtr) {
+			paramIndicationExtPtr = callPlugin(plugin.get_extension, scoped.writeString(WCLAP_EXT_PARAM_INDICATION_COMPAT)).cast<wclap_plugin_param_indication>();
 		}
 		stateExtPtr = callPlugin(plugin.get_extension, scoped.writeString("clap.state")).cast<wclap_plugin_state>();
 		tailExtPtr = callPlugin(plugin.get_extension, scoped.writeString("clap.tail")).cast<wclap_plugin_tail>();
@@ -315,6 +321,15 @@ struct HostedPlugin {
 	}
 	void setParam(wclap_id paramId, double value) {
 		setParamAtTime(paramId, value, 0);
+	}
+	void setParamMappingIndication(wclap_id paramId, bool hasMapping,
+		const std::string &label, const std::string &description) {
+		if (!paramIndicationExtPtr) return;
+		auto scoped = arenaPool.scoped();
+		auto labelPtr = label.empty() ? Pointer<const char>{0} : scoped.writeString(label.c_str());
+		auto descriptionPtr = description.empty() ? Pointer<const char>{0} : scoped.writeString(description.c_str());
+		callPlugin(paramIndicationExtPtr[&wclap_plugin_param_indication::set_mapping],
+			paramId, hasMapping, Pointer<const wclap_color>{0}, labelPtr, descriptionPtr);
 	}
 	void getParam(wclap_id paramId, CborWriter &cbor) {
 		auto scoped = arenaPool.scoped();

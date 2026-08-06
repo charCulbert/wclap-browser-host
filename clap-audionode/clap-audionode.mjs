@@ -3,6 +3,8 @@ import {hostImports, startThreadWorker} from "./host-imports.mjs";
 import CBOR from "./cbor.mjs";
 import {midiFrameFromTimestamp, SharedMidiEventQueue} from "./midi-event.mjs";
 
+const assetVersion = '20260806-midi-map';
+
 function decodeHostCbor(host, api, bytesPtr) {
 	let cborPtr = api.getBytesData(bytesPtr);
 	let cborLength = api.getBytesLength(bytesPtr);
@@ -18,7 +20,7 @@ export default class ClapAudioNode {
 	static #hostConfigPromise;
 	static #warnedNoSharedMidi = false;
 	#ready;
-	#presetReady;
+	#inspectionReady;
 	
 	constructor(wclapOptions) {
 		if (typeof wclapOptions === 'string') wclapOptions = {url: wclapOptions};
@@ -26,7 +28,9 @@ export default class ClapAudioNode {
 
 		// Load configs and start host/WCLAP
 		if (!ClapAudioNode.#hostConfigPromise) {
-			ClapAudioNode.#hostConfigPromise = getHost(new URL("./host.wasm", import.meta.url).href);
+			let hostUrl = new URL("./host.wasm", import.meta.url);
+			hostUrl.searchParams.set('v', assetVersion);
+			ClapAudioNode.#hostConfigPromise = getHost(hostUrl.href);
 		}
 		this.#ready = (async (hostConfigPromise, wclapConfigPromise) => {
 			// We *could* have a common host across all WCLAP modules, but then we'd need to figure out when to de-register them
@@ -56,43 +60,30 @@ export default class ClapAudioNode {
 		}
 	}
 	
+	async #inspectionHost() {
+		if (!this.#inspectionReady) {
+			this.#inspectionReady = (async () => {
+				let {host, api, wclapConfig} = await this.#ready;
+				let inspectionConfig = await getWclap(wclapConfig);
+				let wclap = await host.startWclap(inspectionConfig);
+				let hostedPtr = api.makeHosted(wclap.ptr);
+				if (!hostedPtr) throw Error("Failed to start WCLAP inspection host");
+				return {host, api, hostedPtr, bytesPtr: api.createBytes()};
+			})();
+		}
+		return this.#inspectionReady;
+	}
+
 	async plugins() {
-		let {host, api, wclapConfig, bytesPtr} = await this.#ready;
-		// distinct copy - we're going to register and run it independently of the processor to inspect the plugin list
-		wclapConfig = await getWclap(wclapConfig);
-
-		let wclap = await host.startWclap(wclapConfig);
-		let hostedPtr = api.makeHosted(wclap.ptr); // this specific host's wrapper around an `Instance *`
-		if (!hostedPtr) throw Error("Failed to start WCLAP");
-
-		let decodeCbor = _ => {
-			let cborPtr = api.getBytesData(bytesPtr);
-			let cborLength = api.getBytesLength(bytesPtr);
-
-			// Have to copy because the TextDecoder doesn't like shared buffers
-			let bytes = new Uint8Array(host.hostMemory.buffer).slice(cborPtr, cborPtr + cborLength);
-			return CBOR.decode(bytes);
-		};
-		
-		let info = decodeCbor(api.getInfo(hostedPtr, bytesPtr));
-		api.removeHosted(hostedPtr);
-		
+		let {host, api, hostedPtr, bytesPtr} = await this.#inspectionHost();
+		api.getInfo(hostedPtr, bytesPtr);
+		let info = decodeHostCbor(host, api, bytesPtr);
 		console.log(info);
 		return info.plugins;
 	}
 
 	async #presetHost() {
-		if (!this.#presetReady) {
-			this.#presetReady = (async () => {
-				let {host, api, wclapConfig} = await this.#ready;
-				let presetConfig = await getWclap(wclapConfig);
-				let wclap = await host.startWclap(presetConfig);
-				let hostedPtr = api.makeHosted(wclap.ptr);
-				if (!hostedPtr) throw Error("Failed to start WCLAP preset discovery");
-				return {host, api, hostedPtr, bytesPtr: api.createBytes()};
-			})();
-		}
-		return this.#presetReady;
+		return this.#inspectionHost();
 	}
 
 	async presetDiscovery() {
@@ -153,6 +144,7 @@ export default class ClapAudioNode {
 		// Add the AudioWorkletProcessor module
 		if (!audioContext[this.#moduleAddedToAudioContext]) {
 			let moduleUrl = new URL('./clap-audioworkletprocessor.mjs', import.meta.url);
+			moduleUrl.searchParams.set('v', assetVersion);
 			await audioContext.audioWorklet.addModule(moduleUrl);
 		}
 		audioContext[this.#moduleAddedToAudioContext] = true;

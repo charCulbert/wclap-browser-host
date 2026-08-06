@@ -1,12 +1,19 @@
-import ClapAudioNode from './clap-audionode/clap-audionode.mjs';
+import ClapAudioNode from './clap-audionode/clap-audionode.mjs?v=20260806-midi-map';
 import './compost/components/compost-audio.js';
 import './compost/components/compost-button.js';
+import './compost/components/compost-midi-map.js';
 import './compost/components/compost-midi.js';
 import './compost/components/compost-radio-group.js';
 import './compost/components/compost-slider.js';
+import {createMIDIMappings} from './compost/midi-mappings.js';
 
 const $ = document.querySelector.bind(document);
 const query = new URLSearchParams(location.search);
+if (query.has('state')) {
+	query.delete('state');
+	const search = query.toString();
+	history.replaceState(null, '', `${location.pathname}${search ? `?${search}` : ''}${location.hash}`);
+}
 const archive = query.get('module')
 	|| document.body.dataset.archive
 	|| 'examples/public/char-example-synth.wclap.tar.gz';
@@ -18,6 +25,8 @@ const effectControls = $('#effect-controls');
 const fileInput = $('#audio-file');
 const main = $('main');
 const midiSlot = $('#midi-slot');
+const midiMap = $('#midi-map');
+const midiMappingsPanel = $('#midi-mappings-panel');
 const parameterPanel = $('#parameter-panel');
 const parameters = $('#parameters');
 const pluginPanel = $('#plugin-panel');
@@ -25,12 +34,14 @@ const pluginSelector = $('#plugins');
 const presetPanel = $('#preset-panel');
 const presetSelector = $('#presets');
 const status = $('#status');
-const mappingPanel = $('#mapping-panel');
-const mappingControls = $('#mapping-controls');
 
 const CLAP_PARAM_IS_STEPPED = 1 << 0;
 const CLAP_PARAM_IS_READONLY = 1 << 3;
 const CLAP_PARAM_IS_AUTOMATABLE = 1 << 5;
+const CLAP_PARAM_RESCAN_VALUES = 1 << 0;
+const CLAP_PARAM_RESCAN_TEXT = 1 << 1;
+const CLAP_PARAM_RESCAN_INFO = 1 << 2;
+const CLAP_PARAM_RESCAN_ALL = 1 << 3;
 
 let audioSource;
 let effectNode;
@@ -42,8 +53,11 @@ let objectUrl;
 let presets = [];
 let pluginId = query.get('plugin');
 let parameterControls = new Map();
+let parameterFlags = new Map();
+let parameterSetupGeneration = 0;
+let parameterRefreshGeneration = 0;
+let midiMappings = null;
 let midiAvailable = false;
-let midiLearnTarget = null;
 
 function setStatus(message, isError = false) {
 	status.textContent = message;
@@ -51,8 +65,12 @@ function setStatus(message, isError = false) {
 	status.hidden = !message;
 }
 
-function stateFromUrl() {
-	const encoded = new URLSearchParams(location.search).get('state');
+function stateStorageKey() {
+	return `wclap-browser-host:state:${archive}:${pluginId || ''}`;
+}
+
+function stateFromStorage() {
+	const encoded = sessionStorage.getItem(stateStorageKey());
 	if (!encoded) return null;
 
 	const binary = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
@@ -71,9 +89,7 @@ async function storeState() {
 	if (!effectNode) return;
 	const state = encodeState(await effectNode.saveState());
 	if (!state) return;
-	const nextQuery = new URLSearchParams(location.search);
-	nextQuery.set('state', state);
-	history.replaceState(null, '', `?${nextQuery}`);
+	sessionStorage.setItem(stateStorageKey(), state);
 }
 
 function openPluginInterface(node, pageProxy) {
@@ -83,6 +99,9 @@ function openPluginInterface(node, pageProxy) {
 		resourcePrefix: `${pageProxy.prefix}${frameId}/get_resource`,
 	});
 	frame.id = frameId;
+	frame.title = `${node.descriptor.name} interface`;
+	frame.width = 640;
+	frame.height = 420;
 	frame[pageProxy.symbol] = async path => {
 		if (/^\/file\//.test(path)) return node.getFile(path.slice(5));
 		if (/^\/get_resource\//.test(path)) return node.getResource(path.slice(13));
@@ -113,134 +132,131 @@ async function setupPlugins() {
 	});
 }
 
+function workletChannelForMapping(mapping) {
+	return mapping.channel === null ? -1 : Number(mapping.channel) - 1;
+}
+
+function workletMapping(node, mapping) {
+	const parameterID = String(mapping.parameterID);
+	return {
+		channel: workletChannelForMapping(mapping),
+		cc: Number(mapping.cc),
+		paramId: Number(parameterID),
+		min: Number(mapping.min),
+		max: Number(mapping.max),
+		flags: parameterFlags.get(parameterID) || 0,
+	};
+}
+
+function mappingIndication(node, mapping, hasMapping) {
+	if (typeof node.setParamMappingIndication !== 'function') return Promise.resolve();
+	const label = hasMapping
+		? mapping.channel === null ? `CC ${mapping.cc}` : `ch ${mapping.channel} CC ${mapping.cc}`
+		: '';
+	return node.setParamMappingIndication({
+		paramId: Number(mapping.parameterID),
+		hasMapping,
+		label,
+		description: hasMapping ? `Mapped to ${label}` : '',
+	});
+}
+
+async function installMapping(node, mapping) {
+	const parameterID = String(mapping.parameterID);
+	const previous = midiMappings.get(parameterID);
+	const conflicts = midiMappings.all().filter(candidate =>
+		candidate.parameterID !== parameterID
+		&& candidate.cc === mapping.cc
+		&& candidate.channel === mapping.channel);
+	const replaced = [previous, ...conflicts].filter(Boolean);
+
+	try {
+		for (const oldMapping of replaced)
+			await node.clearMidiCCMapping(workletMapping(node, oldMapping));
+		await node.setMidiCCMapping(workletMapping(node, mapping));
+		midiMappings.applyMapping(mapping);
+		for (const oldMapping of conflicts) midiMappings.applyClear(oldMapping.parameterID);
+		for (const oldMapping of replaced)
+			await mappingIndication(node, oldMapping, false);
+		await mappingIndication(node, mapping, true);
+	} catch (error) {
+		showError(error);
+	}
+}
+
+async function uninstallMapping(node, parameterID) {
+	const mapping = midiMappings.get(parameterID);
+	if (!mapping) return;
+
+	try {
+		await node.clearMidiCCMapping(workletMapping(node, mapping));
+		await mappingIndication(node, mapping, false);
+		midiMappings.applyClear(parameterID);
+	} catch (error) {
+		showError(error);
+	}
+}
+
+function configureMappings(node, params) {
+	const previousMappings = midiMappings?.all() || [];
+	const definitions = new Map();
+	parameterFlags = new Map();
+
+	for (const param of params) {
+		const id = String(param.id);
+		const flags = Number(param.flags) || 0;
+		parameterFlags.set(id, flags);
+		if ((flags & CLAP_PARAM_IS_AUTOMATABLE) === 0
+			|| (flags & CLAP_PARAM_IS_READONLY) !== 0) continue;
+		definitions.set(id, {
+			parameterID: id,
+			kind: flags & CLAP_PARAM_IS_STEPPED ? 'discrete' : 'continuous',
+			path: param.path || param.module || param.section || node.descriptor?.name || 'Plug-in',
+			name: param.name,
+			min: param.min,
+			max: param.max,
+			defaultValue: param.default,
+			step: flags & CLAP_PARAM_IS_STEPPED ? 1 : 0,
+		});
+	}
+
+	midiMappings = createMIDIMappings({
+		parameters: {definition: parameterID => definitions.get(String(parameterID)) || null},
+	});
+	midiMappings.addEventListener('midi-mapping-request', event =>
+		void installMapping(node, event.detail));
+	midiMappings.addEventListener('midi-unmapping-request', event =>
+		void uninstallMapping(node, event.detail.parameterID));
+	midiMap.mappings = midiMappings;
+
+	const validPrevious = previousMappings.filter(mapping => definitions.has(mapping.parameterID));
+	if (validPrevious.length) {
+		midiMappings.applyMappings(validPrevious);
+		for (const mapping of validPrevious) void mappingIndication(node, mapping, true);
+	}
+}
+
 function setupMIDI(node) {
 	midiSlot.replaceChildren();
 	midiAvailable = false;
-	midiLearnTarget = null;
+	midiMappingsPanel.hidden = true;
 	const noteInputs = node.capabilities.noteInputs || [];
 	const acceptsMIDI = noteInputs.some(port => (port.supportedDialects & 2) !== 0);
 	if (!acceptsMIDI) return;
 	midiAvailable = true;
+	midiMappingsPanel.hidden = false;
 
 	const midi = document.createElement('compost-midi');
 	midi.setAttribute('input-only', '');
 	midi.addEventListener('midi-message', event => {
 		const data = event.detail.data;
-		const learnTarget = midiLearnTarget;
-		if (learnTarget && data.length === 3 && (data[0] & 0xf0) === 0xb0) {
-			midiLearnTarget = null;
-			learnTarget.learn.textContent = 'Learn';
-			learnTarget.status.textContent = `Mapping CC ${data[1]}…`;
-			node.setMidiCCMapping({
-				channel: data[0] & 0x0f,
-				cc: data[1],
-				paramId: learnTarget.param.id,
-				min: learnTarget.param.min,
-				max: learnTarget.param.max,
-				flags: learnTarget.flags,
-			}).then(() => {
-				learnTarget.channel.value = String(data[0] & 0x0f);
-				learnTarget.cc.value = String(data[1]);
-				learnTarget.status.textContent = `CC ${data[1]}, channel ${(data[0] & 0x0f) + 1}`;
-			}).catch(showError);
-		}
+		midiMappings?.handleMIDIMessage(data);
 		node.sendMidi(event.detail.data, {
 			timestamp: event.detail.timestamp ?? event.detail.receivedAt,
 			port: 0,
 		});
 	});
 	midiSlot.append(midi);
-}
-
-function createMappingRow(node, param) {
-	const flags = Number(param.flags) || 0;
-	const row = document.createElement('div');
-	row.className = 'mapping-row';
-
-	const label = document.createElement('strong');
-	label.textContent = param.name;
-
-	const channel = document.createElement('select');
-	channel.setAttribute('aria-label', `${param.name} MIDI channel`);
-	channel.append(new Option('Omni', '-1'));
-	for (let index = 0; index < 16; ++index) {
-		channel.append(new Option(`Ch ${index + 1}`, String(index)));
-	}
-
-	const cc = document.createElement('input');
-	cc.type = 'number';
-	cc.min = '0';
-	cc.max = '127';
-	cc.step = '1';
-	cc.value = '1';
-	cc.setAttribute('aria-label', `${param.name} MIDI CC`);
-
-	const learn = document.createElement('button');
-	learn.type = 'button';
-	learn.textContent = 'Learn';
-	learn.setAttribute('aria-label', `Learn MIDI CC for ${param.name}`);
-
-	const map = document.createElement('button');
-	map.type = 'button';
-	map.textContent = 'Map';
-	map.setAttribute('aria-label', `Map MIDI CC for ${param.name}`);
-
-	const clear = document.createElement('button');
-	clear.type = 'button';
-	clear.textContent = 'Clear';
-	clear.setAttribute('aria-label', `Clear MIDI CC for ${param.name}`);
-
-	const status = document.createElement('span');
-	status.className = 'mapping-status';
-	status.textContent = 'No mapping';
-
-	const target = {param, flags, channel, cc, learn, status};
-	learn.addEventListener('click', () => {
-		if (midiLearnTarget) {
-			midiLearnTarget.learn.textContent = 'Learn';
-			midiLearnTarget.status.textContent = 'No mapping';
-		}
-		midiLearnTarget = target;
-		learn.textContent = 'Waiting…';
-		status.textContent = 'Move a MIDI CC';
-	});
-	map.addEventListener('click', async () => {
-		try {
-			await node.setMidiCCMapping({
-				channel: Number(channel.value),
-				cc: Number(cc.value),
-				paramId: param.id,
-				min: param.min,
-				max: param.max,
-				flags,
-			});
-			status.textContent = `CC ${cc.value}, ${channel.value === '-1' ? 'omni' : `channel ${Number(channel.value) + 1}`}`;
-		} catch (error) {
-			showError(error);
-		}
-	});
-	clear.addEventListener('click', async () => {
-		try {
-			await node.clearMidiCCMapping({channel: Number(channel.value), cc: Number(cc.value)});
-			status.textContent = 'No mapping';
-		} catch (error) {
-			showError(error);
-		}
-	});
-
-	row.append(label, channel, cc, learn, map, clear, status);
-	return row;
-}
-
-function setupMappings(node, params) {
-	mappingControls.replaceChildren();
-	const mappable = midiAvailable ? params.filter(param => {
-		const flags = Number(param.flags) || 0;
-		return (flags & CLAP_PARAM_IS_AUTOMATABLE) !== 0
-			&& (flags & CLAP_PARAM_IS_READONLY) === 0;
-	}) : [];
-	for (const param of mappable) mappingControls.append(createMappingRow(node, param));
-	mappingPanel.hidden = mappable.length === 0;
 }
 
 function handleMappedValues(buffer) {
@@ -257,10 +273,37 @@ function handleMappedValues(buffer) {
 	}
 }
 
+function applyParameterValues(params) {
+	for (const param of params) {
+		const control = parameterControls.get(String(param.id));
+		if (!control) continue;
+		control.value = param.value?.value ?? param.default;
+		if (param.value?.text) {
+			control.setAttribute('text', param.value.text);
+		} else {
+			control.removeAttribute('text');
+		}
+	}
+}
+
+async function refreshParameterValues(node) {
+	const setupGeneration = parameterSetupGeneration;
+	const refreshGeneration = ++parameterRefreshGeneration;
+	const params = await node.getParams();
+	if (setupGeneration !== parameterSetupGeneration
+		|| refreshGeneration !== parameterRefreshGeneration
+		|| effectNode !== node) return;
+	applyParameterValues(params);
+}
+
 async function setupParameters(node) {
+	const generation = ++parameterSetupGeneration;
+	++parameterRefreshGeneration;
+	const params = await node.getParams();
+	if (generation !== parameterSetupGeneration || effectNode !== node) return;
+
 	parameters.replaceChildren();
 	parameterControls.clear();
-	const params = await node.getParams();
 	for (const param of params) {
 		const flags = Number(param.flags) || 0;
 		const control = document.createElement('compost-slider');
@@ -285,7 +328,7 @@ async function setupParameters(node) {
 		parameterControls.set(String(param.id), control);
 	}
 	parameterPanel.hidden = params.length === 0;
-	setupMappings(node, params);
+	configureMappings(node, params);
 }
 
 async function setupPresets(node) {
@@ -321,10 +364,27 @@ async function start(context) {
 		clearTimeout(stateTimer);
 		stateTimer = setTimeout(() => storeState().catch(showError), 100);
 	};
-	node.events.params_rescan = () => setupParameters(node).catch(showError);
+	node.events.params_rescan = flags => {
+		const rescanFlags = Number(flags) || 0;
+		const needsValueRefresh = (rescanFlags
+			& (CLAP_PARAM_RESCAN_VALUES | CLAP_PARAM_RESCAN_TEXT)) !== 0;
+		const needsRebuild = rescanFlags === 0
+			|| (rescanFlags & (CLAP_PARAM_RESCAN_INFO | CLAP_PARAM_RESCAN_ALL)) !== 0
+			|| !needsValueRefresh;
+		const update = needsRebuild ? setupParameters(node) : refreshParameterValues(node);
+		update.catch(showError);
+	};
 	node.events['mapped-param-values'] = handleMappedValues;
+	node.events.param_gesture_begin = parameterID => {
+		const controller = midiMap.controller;
+		if (!controller || controller.state === 'idle') return;
+		const target = parameterControls.get(String(parameterID));
+		if (target && target !== controller.lastTarget) {
+			midiMap.selectTarget(target, { focus: false });
+		}
+	};
 
-	const savedState = stateFromUrl();
+	const savedState = stateFromStorage();
 	if (savedState) await node.loadState(savedState);
 
 	if (hasAudioInput) {
@@ -353,6 +413,8 @@ async function start(context) {
 }
 
 function stop() {
+	++parameterSetupGeneration;
+	++parameterRefreshGeneration;
 	clearInterval(performanceTimer);
 	performanceTimer = null;
 	clearTimeout(stateTimer);
@@ -364,6 +426,7 @@ function stop() {
 	audioElement.replaceWith(replacementAudioElement);
 	audioElement = replacementAudioElement;
 	effectNode?.closeInterface?.();
+	midiMap.mappings = null;
 	interfaceFrame?.remove();
 	interfaceFrame = null;
 	effectNode = null;
@@ -371,10 +434,11 @@ function stop() {
 	midiSlot.replaceChildren();
 	parameterPanel.hidden = true;
 	parameters.replaceChildren();
-	mappingPanel.hidden = true;
-	mappingControls.replaceChildren();
 	parameterControls.clear();
-	midiLearnTarget = null;
+	parameterFlags.clear();
+	midiMappings = null;
+	midiMappingsPanel.hidden = true;
+	midiMappingsPanel.open = false;
 	midiAvailable = false;
 	presetPanel.hidden = true;
 	presets = [];
@@ -427,17 +491,6 @@ document.body.addEventListener('dragover', event => {
 document.body.addEventListener('drop', event => {
 	event.preventDefault();
 	loadAudioFile(event.dataTransfer?.files?.[0]);
-});
-
-$('#copy-state').addEventListener('button-trigger', async () => {
-	await storeState();
-	await navigator.clipboard.writeText(location.href);
-});
-
-$('#reset-state').addEventListener('button-trigger', () => {
-	const nextQuery = new URLSearchParams(location.search);
-	nextQuery.delete('state');
-	location.href = `${location.pathname}${nextQuery.toString() ? `?${nextQuery}` : ''}`;
 });
 
 presetSelector.addEventListener('change', async event => {

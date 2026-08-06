@@ -1,4 +1,5 @@
 #include <iostream>
+#include <string>
 #ifndef LOG_EXPR
 #	define LOG_EXPR(expr) std::cout << #expr " = " << (expr) << std::endl;
 #endif
@@ -74,6 +75,16 @@ extern "C" {
 	}
 	void WASM_FN(pluginSetParamAtTime)(HostedPlugin *plugin, uint32_t paramId, double value, uint32_t sampleOffset) {
 		plugin->setParamAtTime(paramId, value, sampleOffset);
+	}
+	void WASM_FN(pluginSetParamMappingIndication)(HostedPlugin *plugin, uint32_t paramId,
+		bool hasMapping, Bytes *bytes, uint32_t labelLength) {
+		if (!bytes || labelLength > bytes->buffer.size()) return;
+		auto *data = reinterpret_cast<const char *>(bytes->buffer.data());
+		auto descriptionLength = bytes->buffer.size() - labelLength;
+		std::string label = labelLength ? std::string{data, labelLength} : std::string{};
+		std::string description = descriptionLength
+			? std::string{data + labelLength, descriptionLength} : std::string{};
+		plugin->setParamMappingIndication(paramId, hasMapping, label, description);
 	}
 	void WASM_FN(pluginParamsFlush)(HostedPlugin *plugin) {
 		plugin->paramsFlush();

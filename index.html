@@ -22,13 +22,17 @@
       min-height: 86px;
       padding: 8px 18px;
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 12px;
+      row-gap: 4px;
       border-bottom: 1px solid #393939;
       background: #202020;
     }
     h1 {
-      margin: 0 auto 0 0;
+      flex: 1 1 140px;
+      min-width: 0;
+      margin: 0;
       font-size: 1rem;
       font-weight: 600;
     }
@@ -66,6 +70,10 @@
       --compost-midi-focus-color: #8ee3b2;
       --compost-midi-color-scheme: dark;
     }
+    #midi-slot {
+      flex: 0 1 220px;
+      min-width: 0;
+    }
     #preset-panel {
       padding: 10px 18px;
       border-bottom: 1px solid #393939;
@@ -74,9 +82,9 @@
     #plugin-panel,
     #preset-panel,
     #parameter-panel[hidden],
-    #mapping-panel[hidden],
     #plugin-panel[hidden],
-    #preset-panel[hidden] { display: none; }
+    #preset-panel[hidden],
+    #midi-mappings-panel[hidden] { display: none; }
     #plugin-panel,
     #preset-panel {
       padding: 10px 18px;
@@ -89,11 +97,45 @@
       --compost-radio-group-focus: #8ee3b2;
       --compost-radio-group-color-scheme: dark;
     }
+    compost-midi-map {
+      --compost-midi-map-bg: #252525;
+      --compost-midi-map-border: #ddd;
+      --compost-midi-map-text: #ddd;
+      --compost-midi-map-focus-color: #8ee3b2;
+      --compost-midi-map-color-scheme: dark;
+      --midi-map-learn-color: #8ee3b2;
+      font-size: 11px;
+    }
+    #midi-mappings-panel {
+      border-bottom: 1px solid #393939;
+      background: #171717;
+    }
+    #midi-mappings-panel summary {
+      padding: 10px 18px;
+      color: #e7ebf0;
+      cursor: pointer;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      list-style: none;
+      text-transform: uppercase;
+    }
+    #midi-mappings-panel summary::-webkit-details-marker { display: none; }
+    #midi-mappings-panel summary::before {
+      content: '+';
+      display: inline-block;
+      width: 1.2em;
+      color: #8ee3b2;
+    }
+    #midi-mappings-panel[open] summary { border-bottom: 1px solid #393939; }
+    #midi-mappings-panel[open] summary::before { content: '−'; }
+    #midi-mappings-panel compost-midi-map { border-bottom: 0; }
     #effect-controls[hidden] { display: none; }
     #effect-controls {
       display: flex;
       align-items: center;
       gap: 4px;
+      flex: 0 0 auto;
     }
     main {
       min-height: 0;
@@ -103,15 +145,17 @@
       gap: 18px;
     }
     iframe {
-      width: 100%;
-      height: 100%;
+      width: min(100%, 640px);
+      height: 420px;
+      max-height: calc(100vh - 230px);
       min-height: 280px;
+      aspect-ratio: 640 / 420;
+      justify-self: center;
       border: 0;
       border-radius: 8px;
       background: #171717;
     }
-    #parameter-panel,
-    #mapping-panel {
+    #parameter-panel {
       display: grid;
       gap: 10px;
       padding: 12px;
@@ -119,8 +163,7 @@
       border-radius: 8px;
       background: #202020;
     }
-    #parameter-panel h2,
-    #mapping-panel h2 {
+    #parameter-panel h2 {
       margin: 0;
       font-size: 0.8rem;
       font-weight: 600;
@@ -131,39 +174,18 @@
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 10px 18px;
     }
-    #mapping-controls {
-      display: grid;
-      gap: 8px;
-    }
-    .mapping-row {
-      display: grid;
-      grid-template-columns: minmax(120px, 1fr) 76px 68px auto auto auto minmax(150px, 1fr);
-      align-items: center;
-      gap: 6px;
-      color: #ddd;
-      font-size: 0.8rem;
-    }
-    .mapping-row select,
-    .mapping-row input,
-    .mapping-row button {
-      min-height: 28px;
-      border: 1px solid #555;
-      border-radius: 4px;
-      background: #252525;
-      color: #ddd;
-      font: inherit;
-    }
-    .mapping-row button { cursor: pointer; padding: 2px 8px; }
-    .mapping-row button:focus-visible,
-    .mapping-row select:focus-visible,
-    .mapping-row input:focus-visible { outline: 2px solid #8ee3b2; outline-offset: 1px; }
-    .mapping-status { color: #aaa; }
     compost-slider {
       --slider-panel-bg: transparent;
-      --slider-color: #ddd;
-      --slider-accent: #8ee3b2;
-      --slider-focus-color: #8ee3b2;
-      --slider-track: #555;
+      --slider-text: #f4f4f4;
+      --slider-value: #e1e7ee;
+      --slider-fill: #8ee3b2;
+      --slider-thumb: #f4f4f4;
+      --slider-thumb-border: #171717;
+      --slider-track: #6c7682;
+      --slider-value-editor-bg: #252525;
+      --slider-focus-bracket-color: #8ee3b2;
+      --midi-map-learn-color: #8ee3b2;
+      --midi-map-label-shadow: 0 1px 2px #171717;
       min-width: 0;
     }
     #status {
@@ -175,16 +197,20 @@
     }
     #status[data-error] { color: #ff9b9b; }
     #cpu {
-      width: 5ch;
+      flex: 0 0 auto;
+      min-width: 9ch;
+      width: max-content;
+      margin-left: auto;
       color: #aaa;
       font: 11px ui-monospace, monospace;
+      white-space: nowrap;
       text-align: right;
     }
     audio,
     input[type="file"] { display: none; }
   </style>
 </head>
-<body data-archive="examples/public/char-example-synth.wclap.tar.gz">
+<body data-archive="examples/public/char-example-synth.wclap.tar.gz?v=20260806-midi-map">
   <script src="./page-proxy-service-worker.js"></script>
   <header>
     <h1 id="plugin-name">Compost</h1>
@@ -193,8 +219,6 @@
       <compost-button id="play-input" label="Play"></compost-button>
       <compost-button id="load-input" label="Load"></compost-button>
     </div>
-    <compost-button id="copy-state" label="Copy"></compost-button>
-    <compost-button id="reset-state" label="Reset"></compost-button>
     <compost-audio start-label="Start" stop-label="Stop"></compost-audio>
     <output id="cpu" aria-label="CPU use"></output>
   </header>
@@ -204,19 +228,19 @@
   <section id="preset-panel" aria-label="Presets" hidden>
     <compost-radio-group id="presets" label="Presets"></compost-radio-group>
   </section>
+  <details id="midi-mappings-panel" aria-label="MIDI mappings" hidden>
+    <summary>MIDI mapping</summary>
+    <compost-midi-map id="midi-map" label="Map MIDI"></compost-midi-map>
+  </details>
   <main>
     <output id="status" role="status">Press Start to load the plug-in.</output>
     <section id="parameter-panel" aria-label="Parameters" hidden>
       <h2>Parameters</h2>
       <div id="parameters"></div>
     </section>
-    <section id="mapping-panel" aria-label="MIDI mappings" hidden>
-      <h2>MIDI CC mappings</h2>
-      <div id="mapping-controls"></div>
-    </section>
   </main>
   <audio id="input-audio" src="./audio/loop.mp3" loop crossorigin="anonymous"></audio>
   <input id="audio-file" type="file" accept="audio/*">
-  <script type="module" src="./main.js"></script>
+  <script type="module" src="./main.js?v=20260806-midi-map"></script>
 </body>
 </html>
