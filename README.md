@@ -50,6 +50,9 @@ WCLAP behavior in the existing `ClapAudioNode` API:
 - audio input, file loading, and drag-and-drop;
 - AudioWorklet CPU measurements.
 
+Plugin WebView UI is optional. A plugin without WebView UI still loads and
+runs through the same runtime; the host simply omits the plugin iframe.
+
 For a custom UI, import `ClapAudioNode` directly:
 
 ```js

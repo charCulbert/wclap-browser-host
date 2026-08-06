@@ -16,6 +16,7 @@ export default class ClapAudioNode {
 	static #routingId = Symbol();
 	static #timerSharedArrayBuffer;
 	static #hostConfigPromise;
+	static #warnedNoSharedMidi = false;
 	#ready;
 	#presetReady;
 	
@@ -157,8 +158,9 @@ export default class ClapAudioNode {
 		audioContext[this.#moduleAddedToAudioContext] = true;
 
 		let {host, wclapConfig} = await this.#ready;
-		let midiQueue = globalThis.crossOriginIsolated && typeof SharedArrayBuffer === "function"
-			? new SharedMidiEventQueue() : null;
+		let sharedMidiAvailable = globalThis.crossOriginIsolated
+			&& typeof SharedArrayBuffer === "function";
+		let midiQueue = sharedMidiAvailable ? new SharedMidiEventQueue() : null;
 		nodeOptions.processorOptions = {
 			// These provide enough information for the processor to load the module and start the plugin
 			host: host.initObj(),
@@ -221,6 +223,20 @@ export default class ClapAudioNode {
 				effectNode.loadPreset = preset => loadPresetFromLocation(
 					preset.locationKind, preset.location, preset.loadKey);
 				effectNode.midiTransport = midiQueue ? "shared-memory" : "message-port";
+				let acceptsMidi = (effectNode.capabilities.noteInputs || [])
+					.some(port => (port.supportedDialects & 2) !== 0);
+				if (!midiQueue && acceptsMidi && !ClapAudioNode.#warnedNoSharedMidi) {
+					let reason = globalThis.crossOriginIsolated
+						? "this browser or context does not expose SharedArrayBuffer"
+						: "cross-origin isolation is disabled; check COOP/COEP response headers";
+					console.warn(
+						`SharedArrayBuffer not available due to ${reason}, falling back to MessagePort for passing MIDI. `
+						+ "Enable Cross-Origin-Opener-Policy: same-origin and "
+						+ "Cross-Origin-Embedder-Policy: credentialless to use SharedArrayBuffer "
+						+ "for better MIDI scheduling precision."
+					);
+					ClapAudioNode.#warnedNoSharedMidi = true;
+				}
 				effectNode.sendMidi = (data, options = {}) => {
 					let timestamp = options.timestamp ?? performance.now();
 					let targetFrame = midiFrameFromTimestamp(audioContext, timestamp);
