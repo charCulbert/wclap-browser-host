@@ -3,7 +3,34 @@ import {hostImports, startThreadWorker} from "./host-imports.mjs";
 import CBOR from "./cbor.mjs";
 import {midiFrameFromTimestamp, SharedMidiEventQueue} from "./midi-event.mjs";
 
-const assetVersion = '20260806-midi-map';
+const assetVersion = '20260808-audio-restart2';
+
+function cloneMemory(memory, memorySpec = {}) {
+	const shared = typeof SharedArrayBuffer === 'function'
+		&& memory.buffer instanceof SharedArrayBuffer;
+	return new WebAssembly.Memory({
+		initial: Math.max(1, Math.ceil(memory.buffer.byteLength / 65536)),
+		maximum: memorySpec.maximum ?? 32768,
+		shared,
+	});
+}
+
+function freshWasmInit(init, resetHostMemory = false) {
+	const copy = Object.assign({}, init);
+	if (resetHostMemory) {
+		delete copy.memory;
+		if (init.wasi) copy.wasi = Object.assign({}, init.wasi);
+		delete copy.wasi?.memory;
+	} else if (init.memory) {
+		copy.memory = cloneMemory(init.memory, init.memorySpec);
+	}
+	if (!resetHostMemory && init.wasi?.memory) {
+		copy.wasi = Object.assign({}, init.wasi, {
+			memory: cloneMemory(init.wasi.memory, init.wasi.memorySpec),
+		});
+	}
+	return copy;
+}
 
 function decodeHostCbor(host, api, bytesPtr) {
 	let cborPtr = api.getBytesData(bytesPtr);
@@ -155,8 +182,8 @@ export default class ClapAudioNode {
 		let midiQueue = sharedMidiAvailable ? new SharedMidiEventQueue() : null;
 		nodeOptions.processorOptions = {
 			// These provide enough information for the processor to load the module and start the plugin
-			host: host.initObj(),
-			wclap: wclapConfig,
+			host: freshWasmInit(host.initObj(), true),
+			wclap: freshWasmInit(wclapConfig),
 			pluginId: pluginId,
 			midiQueueBuffer: midiQueue?.buffer
 		};

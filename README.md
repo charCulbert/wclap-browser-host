@@ -48,6 +48,11 @@ WCLAP behavior in the existing `ClapAudioNode` API:
 - presets and session-backed state save/restore;
 - Web MIDI input with timestamped delivery;
 - audio input, file loading, and drag-and-drop;
+- WCLAP archive loading from the Load WCLAP button or a page drop;
+- an Info view for the loaded plug-in's descriptor and runtime capabilities;
+- separate Plugin and Preset selectors; Plugin remains explicit even for a
+  single-plugin archive, while Preset appears only when supported;
+- Stop audio suspends the browser context by default and keeps the loaded plug-in alive;
 - AudioWorklet CPU measurements.
 
 Plugin WebView UI is optional. A plugin without WebView UI still loads and

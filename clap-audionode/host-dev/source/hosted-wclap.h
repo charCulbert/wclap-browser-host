@@ -582,12 +582,18 @@ struct HostedWclap {
 			[&](const auto &provider) { return provider.id == providerId; });
 		bool success = false;
 		if (found != presetProviders.end()) {
-			auto scoped = arenaPool.scoped();
 			auto provider = instance->get(found->pointer);
-			auto locationPtr = location.empty()
-				? Pointer<const char>{0} : scoped.writeString(location.c_str());
-			success = instance->call(provider.get_metadata, found->pointer,
-				locationKind, locationPtr, presetMetadataReceiverPtr);
+			if (location.empty()) {
+				// Plugin-contained presets require a null location. Avoid taking a
+				// temporary arena for this case: some WCLAP allocators do not tolerate
+				// an otherwise-unused cross-instance allocation during metadata calls.
+				success = instance->call(provider.get_metadata, found->pointer,
+					locationKind, Pointer<const char>{0}, presetMetadataReceiverPtr);
+			} else {
+				auto scoped = arenaPool.scoped();
+				success = instance->call(provider.get_metadata, found->pointer,
+					locationKind, scoped.writeString(location.c_str()), presetMetadataReceiverPtr);
+			}
 		}
 		cbor.openMap();
 		cbor.addUtf8("success"); cbor.addBool(success);

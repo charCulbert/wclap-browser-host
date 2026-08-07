@@ -1,10 +1,10 @@
-import ClapAudioNode from './clap-audionode/clap-audionode.mjs?v=20260806-midi-map';
-import './compost/components/compost-audio.js';
+import ClapAudioNode from './clap-audionode/clap-audionode.mjs?v=20260808-audio-restart2';
+import './compost/components/compost-audio.js?v=20260808-audio-default';
 import './compost/components/compost-button.js';
-import './compost/components/compost-midi-map.js';
 import './compost/components/compost-midi.js';
-import './compost/components/compost-radio-group.js';
+import './compost/components/compost-piano.js';
 import './compost/components/compost-slider.js';
+import './standalone-midi-map.js?v=20260808-host-ui3';
 import {createMIDIMappings} from './compost/midi-mappings.js';
 
 const $ = document.querySelector.bind(document);
@@ -14,23 +14,37 @@ if (query.has('state')) {
 	const search = query.toString();
 	history.replaceState(null, '', `${location.pathname}${search ? `?${search}` : ''}${location.hash}`);
 }
-const archive = query.get('module')
-	|| document.body.dataset.archive
-	|| 'examples/public/char-example-synth.wclap.tar.gz';
-const wclap = new ClapAudioNode({url: archive});
+const initialArchive = (() => {
+	const url = new URL(query.get('module')
+		|| document.body.dataset.archive
+		|| 'examples/public/char-example-synth.wclap.tar.gz', document.baseURI);
+	url.searchParams.set('v', '20260808-host-keyboard');
+	return url.href;
+})();
+let archive = initialArchive;
+let archiveLabel = '';
+let archiveObjectUrl = null;
+let wclap = new ClapAudioNode({url: archive});
 
 const audioControl = $('compost-audio');
 let audioElement = $('#input-audio');
 const effectControls = $('#effect-controls');
 const fileInput = $('#audio-file');
+const archiveDrop = $('#archive-drop');
+const archiveFile = $('#archive-file');
+const hostControlsToggle = $('#host-controls-toggle');
+const pluginInfoToggle = $('#plugin-info-toggle');
+const hostKeyboard = $('#host-keyboard');
 const main = $('main');
 const midiSlot = $('#midi-slot');
 const midiMap = $('#midi-map');
-const midiMappingsPanel = $('#midi-mappings-panel');
+const midiMapSlot = $('#midi-map-slot');
 const parameterPanel = $('#parameter-panel');
 const parameters = $('#parameters');
 const pluginPanel = $('#plugin-panel');
 const pluginSelector = $('#plugins');
+const pluginInfoPanel = $('#plugin-info-panel');
+const pluginInfo = $('#plugin-info');
 const presetPanel = $('#preset-panel');
 const presetSelector = $('#presets');
 const status = $('#status');
@@ -58,6 +72,14 @@ let parameterSetupGeneration = 0;
 let parameterRefreshGeneration = 0;
 let midiMappings = null;
 let midiAvailable = false;
+let parameterDefinitions = new Map();
+let hostControlsVisible = false;
+let interfaceKeyWindow = null;
+let interfaceLoadHandler = null;
+let pluginCatalog = [];
+let pluginsReady = Promise.resolve();
+let loadGeneration = 0;
+archiveLabel = archiveDisplayName(archive);
 
 function setStatus(message, isError = false) {
 	status.textContent = message;
@@ -110,27 +132,48 @@ function openPluginInterface(node, pageProxy) {
 	return frame;
 }
 
-async function setupPlugins() {
-	const plugins = await wclap.plugins();
-	if (!plugins.length) throw Error('The WCLAP archive contains no plugins');
-
-	if (!pluginId || !plugins.some(plugin => plugin.id === pluginId)) {
-		pluginId = plugins[0].id;
+function archiveDisplayName(source) {
+	if (source?.name) return source.name;
+	try {
+		const path = decodeURIComponent(new URL(source, document.baseURI).pathname);
+		return path.split('/').filter(Boolean).pop() || 'WCLAP archive';
+	} catch {
+		return 'WCLAP archive';
 	}
+}
 
-	if (plugins.length <= 1) return;
+function applyPluginCatalog(plugins) {
+	pluginCatalog = plugins;
+	if (!pluginId || !plugins.some(plugin => plugin.id === pluginId))
+		pluginId = plugins[0].id;
 
-	pluginSelector.setAttribute('options', plugins.map(plugin => plugin.name).join(','));
-	pluginSelector.setAttribute('values', plugins.map(plugin => plugin.id).join(','));
+	pluginSelector.replaceChildren(...plugins.map(plugin => {
+		const option = document.createElement('option');
+		option.value = plugin.id;
+		option.textContent = plugin.name;
+		return option;
+	}));
 	pluginSelector.value = pluginId;
 	pluginPanel.hidden = false;
-	pluginSelector.addEventListener('change', event => {
-		const nextQuery = new URLSearchParams(location.search);
-		nextQuery.set('plugin', event.detail.value);
-		nextQuery.delete('state');
-		location.href = `${location.pathname}?${nextQuery}`;
-	});
+
+	renderPluginInfo();
 }
+
+async function setupPlugins(module = wclap) {
+	const plugins = await module.plugins();
+	if (!plugins.length) throw Error('The WCLAP archive contains no plugins');
+	applyPluginCatalog(plugins);
+	return plugins;
+}
+
+pluginSelector.addEventListener('change', event => {
+	const nextPluginID = event.target.value;
+	if (!nextPluginID || nextPluginID === pluginId) return;
+	const nextQuery = new URLSearchParams(location.search);
+	nextQuery.set('plugin', nextPluginID);
+	nextQuery.delete('state');
+	location.href = `${location.pathname}?${nextQuery}${location.hash}`;
+});
 
 function workletChannelForMapping(mapping) {
 	return mapping.channel === null ? -1 : Number(mapping.channel) - 1;
@@ -146,6 +189,29 @@ function workletMapping(node, mapping) {
 		max: Number(mapping.max),
 		flags: parameterFlags.get(parameterID) || 0,
 	};
+}
+
+function sendHostNote(note, on) {
+	if (!effectNode) return;
+	const value = Number(note);
+	if (!Number.isInteger(value) || value < 0 || value > 127) return;
+	effectNode.sendMidi(new Uint8Array([on ? 0x90 : 0x80, value, on ? 100 : 0]), {
+		timestamp: performance.now(),
+		port: 0,
+	});
+}
+
+hostKeyboard.addEventListener('note-down', event => sendHostNote(event.detail.note, true));
+hostKeyboard.addEventListener('note-up', event => sendHostNote(event.detail.note, false));
+
+function mappingTarget(parameterID, name = '') {
+	const id = String(parameterID);
+	const definition = parameterDefinitions.get(id);
+	if (!definition) return false;
+
+	const started = midiMappings?.beginLearn?.(id) || false;
+	if (started) midiMap.setTarget(id, name || definition.name);
+	return started;
 }
 
 function mappingIndication(node, mapping, hasMapping) {
@@ -175,6 +241,8 @@ async function installMapping(node, mapping) {
 			await node.clearMidiCCMapping(workletMapping(node, oldMapping));
 		await node.setMidiCCMapping(workletMapping(node, mapping));
 		midiMappings.applyMapping(mapping);
+		if (midiMap.mappingMode && midiMap.target?.parameterID === parameterID)
+			mappingTarget(parameterID, midiMap.target.name);
 		for (const oldMapping of conflicts) midiMappings.applyClear(oldMapping.parameterID);
 		for (const oldMapping of replaced)
 			await mappingIndication(node, oldMapping, false);
@@ -220,6 +288,8 @@ function configureMappings(node, params) {
 		});
 	}
 
+	parameterDefinitions = definitions;
+
 	midiMappings = createMIDIMappings({
 		parameters: {definition: parameterID => definitions.get(String(parameterID)) || null},
 	});
@@ -239,18 +309,23 @@ function configureMappings(node, params) {
 function setupMIDI(node) {
 	midiSlot.replaceChildren();
 	midiAvailable = false;
-	midiMappingsPanel.hidden = true;
+	midiMapSlot.hidden = true;
+	hostKeyboard.hidden = true;
+	document.body.removeAttribute('data-host-keyboard');
 	const noteInputs = node.capabilities.noteInputs || [];
 	const acceptsMIDI = noteInputs.some(port => (port.supportedDialects & 2) !== 0);
 	if (!acceptsMIDI) return;
 	midiAvailable = true;
-	midiMappingsPanel.hidden = false;
+	midiMapSlot.hidden = false;
+	hostKeyboard.hidden = false;
+	document.body.setAttribute('data-host-keyboard', '');
 
 	const midi = document.createElement('compost-midi');
 	midi.setAttribute('input-only', '');
 	midi.addEventListener('midi-message', event => {
 		const data = event.detail.data;
 		midiMappings?.handleMIDIMessage(data);
+		hostKeyboard.handleExternalMIDI(data);
 		node.sendMidi(event.detail.data, {
 			timestamp: event.detail.timestamp ?? event.detail.receivedAt,
 			port: 0,
@@ -258,6 +333,120 @@ function setupMIDI(node) {
 	});
 	midiSlot.append(midi);
 }
+
+function updateHostControls(hasParameters, hasPluginUI) {
+	if (!hasParameters) {
+		hostControlsVisible = false;
+		hostControlsToggle.hidden = true;
+		parameterPanel.hidden = true;
+		if (interfaceFrame) interfaceFrame.hidden = false;
+		return;
+	}
+
+	if (!hasPluginUI) {
+		hostControlsVisible = true;
+		hostControlsToggle.hidden = true;
+		parameterPanel.hidden = false;
+		return;
+	}
+
+	hostControlsToggle.hidden = false;
+	hostControlsToggle.textContent = 'UI';
+	hostControlsToggle.setAttribute('aria-label', hostControlsVisible
+		? 'Show plug-in UI'
+		: 'Show host controls');
+	hostControlsToggle.setAttribute('aria-pressed', String(!hostControlsVisible));
+	parameterPanel.hidden = !hostControlsVisible;
+	interfaceFrame.hidden = hostControlsVisible;
+}
+
+function cancelMIDIMap() {
+	if (!midiMap.mappingMode) return;
+	midiMappings?.cancelLearn?.();
+	midiMap.setMode(false);
+}
+
+function parameterIDFromKeyEvent(event) {
+	const target = event.composedPath?.().find(node =>
+		typeof node?.getAttribute === 'function' && node.getAttribute('parameter-id'));
+	return target?.getAttribute('parameter-id')
+		|| midiMap.target?.parameterID
+		|| midiMap.selectedParameterID
+		|| '';
+}
+
+function handleInterfaceKeyDown(event) {
+	if (!midiMap.mappingMode) return;
+	if (event.key === 'Delete') {
+		const parameterID = parameterIDFromKeyEvent(event);
+		if (parameterID && midiMappings?.get?.(parameterID)) {
+			event.preventDefault();
+			event.stopPropagation();
+			midiMappings.requestClear(parameterID);
+		}
+		return;
+	}
+	if (event.key !== 'Escape') return;
+	event.preventDefault();
+	event.stopPropagation();
+	cancelMIDIMap();
+}
+
+function bindInterfaceKeyboard(frame) {
+	interfaceLoadHandler = () => {
+		try {
+			if (interfaceKeyWindow && interfaceKeyWindow !== frame.contentWindow)
+				interfaceKeyWindow.removeEventListener('keydown', handleInterfaceKeyDown, true);
+			interfaceKeyWindow = frame.contentWindow;
+			interfaceKeyWindow?.addEventListener('keydown', handleInterfaceKeyDown, true);
+		} catch {
+			interfaceKeyWindow = null;
+		}
+	};
+	frame.addEventListener('load', interfaceLoadHandler);
+	interfaceLoadHandler();
+}
+
+function unbindInterfaceKeyboard(frame) {
+	if (interfaceLoadHandler) frame?.removeEventListener('load', interfaceLoadHandler);
+	interfaceKeyWindow?.removeEventListener('keydown', handleInterfaceKeyDown, true);
+	interfaceKeyWindow = null;
+	interfaceLoadHandler = null;
+}
+
+midiMap.addEventListener('midi-map-begin', () => {
+	midiMappings?.cancelLearn?.();
+	midiMap.setMode(true);
+});
+
+midiMap.addEventListener('midi-map-cancel', () => {
+	cancelMIDIMap();
+});
+
+midiMap.addEventListener('midi-map-clear', event => {
+	midiMappings?.requestClear?.(event.detail?.parameterID);
+});
+
+midiMap.addEventListener('midi-map-clear-all', () => {
+	for (const mapping of midiMappings?.all?.() || [])
+		midiMappings.requestClear(mapping.parameterID);
+});
+
+parameters.addEventListener('parameter-begin', event => {
+	if (!midiMap.mappingMode) return;
+	const parameterID = event.detail?.parameterID;
+	const name = event.target?.getAttribute?.('label') || event.target?.textContent?.trim();
+	mappingTarget(parameterID, name);
+});
+
+parameters.addEventListener('keydown', event => {
+	if (!midiMap.mappingMode || event.key !== 'Delete') return;
+	const parameterID = event.target?.getAttribute?.('parameter-id');
+	if (!parameterID || !midiMappings?.get?.(parameterID)) return;
+	event.preventDefault();
+	event.stopPropagation();
+	midiMappings.requestClear(parameterID);
+}, true);
 
 function handleMappedValues(buffer) {
 	if (!(buffer instanceof ArrayBuffer)) return;
@@ -329,6 +518,7 @@ async function setupParameters(node) {
 	}
 	parameterPanel.hidden = params.length === 0;
 	configureMappings(node, params);
+	updateHostControls(params.length !== 0, Boolean(interfaceFrame));
 }
 
 async function setupPresets(node) {
@@ -336,22 +526,102 @@ async function setupPresets(node) {
 	presets = node.supportsPresetLoad ? await node.getPresets() : [];
 	if (!presets.length) return;
 
-	presetSelector.setAttribute('options', presets
-		.map(preset => preset.name.replaceAll(',', ' ')).join(','));
-	presetSelector.setAttribute('values', presets.map((_, index) => String(index)).join(','));
-	presetSelector.removeAttribute('value');
+	presetSelector.replaceChildren(...presets.map((preset, index) => {
+		const option = document.createElement('option');
+		option.value = String(index);
+		option.textContent = preset.name;
+		return option;
+	}));
 	presetPanel.hidden = false;
 }
 
+function formatNoteDialects(value) {
+	const names = [];
+	if (value & 1) names.push('CLAP');
+	if (value & 2) names.push('MIDI');
+	if (value & 4) names.push('MPE');
+	if (value & 8) names.push('MIDI 2');
+	return names.join(', ') || 'Unknown dialect';
+}
+
+function formatPorts(ports, notes = false) {
+	if (!ports?.length) return 'None';
+	return ports.map((port, index) => {
+		const name = port.name || `Port ${index + 1}`;
+		if (notes) return `${name} (${formatNoteDialects(Number(port.supportedDialects) || 0)})`;
+		return `${name} (${port.channelCount ?? '?'} channels)`;
+	}).join('; ');
+}
+
+function renderPluginInfo() {
+	const descriptor = effectNode?.descriptor
+		|| pluginCatalog.find(plugin => plugin.id === pluginId);
+	if (!descriptor) {
+		pluginInfo.replaceChildren();
+		if (!pluginCatalog.length) pluginInfoPanel.hidden = true;
+		pluginInfoToggle.hidden = true;
+		pluginInfoToggle.setAttribute('aria-pressed', 'false');
+		return;
+	}
+
+	document.title = descriptor.name || 'Compost';
+	$('#plugin-name').textContent = descriptor.name || 'Compost';
+	pluginInfoToggle.hidden = false;
+	const infoVisible = !pluginInfoPanel.hidden;
+	pluginInfoToggle.setAttribute('aria-pressed', String(infoVisible));
+	pluginInfoToggle.setAttribute('aria-label', infoVisible
+		? 'Hide plug-in information'
+		: 'Show plug-in information');
+	const capabilities = effectNode?.capabilities;
+	const rows = [
+		['Archive', archiveLabel],
+		['Name', descriptor.name || 'Unnamed plug-in'],
+		['Vendor', descriptor.vendor || 'Unknown'],
+		['CLAP ID', descriptor.id || 'Unknown'],
+		['Features', descriptor.features?.length ? descriptor.features.join(', ') : 'None'],
+	];
+	if (descriptor.description) rows.push(['Description', descriptor.description]);
+	if (capabilities) {
+		rows.push(
+			['Audio inputs', formatPorts(capabilities.audioInputs)],
+			['Audio outputs', formatPorts(capabilities.audioOutputs)],
+			['MIDI inputs', formatPorts(capabilities.noteInputs, true)],
+			['MIDI outputs', formatPorts(capabilities.noteOutputs, true)],
+			['Parameters', String(parameterDefinitions.size)],
+			['Presets', effectNode.supportsPresetLoad
+				? (presets.length ? String(presets.length) : 'None')
+				: 'Not supported'],
+		);
+	} else {
+		rows.push(['Runtime details', 'Press Start audio to inspect ports, parameters, and presets']);
+	}
+
+	pluginInfo.replaceChildren();
+	for (const [label, value] of rows) {
+		const term = document.createElement('dt');
+		term.textContent = label;
+		const description = document.createElement('dd');
+		description.textContent = value;
+		pluginInfo.append(term, description);
+	}
+}
+
 async function start(context) {
+	const requestedGeneration = loadGeneration;
+	const requestedWclap = wclap;
 	setStatus('Loading WCLAP plug-in…');
 	await pluginsReady;
+	if (requestedGeneration !== loadGeneration || requestedWclap !== wclap) return;
 	const pageProxy = await pageProxyReady;
-	const node = await wclap.createNode(context, pluginId, {
+	const node = await requestedWclap.createNode(context, pluginId, {
 		numberOfInputs: 1,
 		numberOfOutputs: 1,
 		outputChannelCount: [2],
 	});
+	if (requestedGeneration !== loadGeneration || requestedWclap !== wclap) {
+		node.disconnect();
+		return;
+	}
 
 	const hasAudioInput = (node.capabilities.audioInputs || []).length > 0;
 
@@ -359,6 +629,11 @@ async function start(context) {
 	$('#plugin-name').textContent = node.descriptor.name;
 	effectControls.hidden = !hasAudioInput;
 	effectNode = node;
+
+	hostControlsToggle.onclick = () => {
+		hostControlsVisible = !hostControlsVisible;
+		updateHostControls(parameterDefinitions.size !== 0, Boolean(interfaceFrame));
+	};
 
 	node.events.state_mark_dirty = () => {
 		clearTimeout(stateTimer);
@@ -376,12 +651,8 @@ async function start(context) {
 	};
 	node.events['mapped-param-values'] = handleMappedValues;
 	node.events.param_gesture_begin = parameterID => {
-		const controller = midiMap.controller;
-		if (!controller || controller.state === 'idle') return;
-		const target = parameterControls.get(String(parameterID));
-		if (target && target !== controller.lastTarget) {
-			midiMap.selectTarget(target, { focus: false });
-		}
+		if (!midiMap.mappingMode) return;
+		mappingTarget(parameterID);
 	};
 
 	const savedState = stateFromStorage();
@@ -395,11 +666,13 @@ async function start(context) {
 
 	if (node.openInterface) {
 		interfaceFrame = openPluginInterface(node, pageProxy);
+		bindInterfaceKeyboard(interfaceFrame);
 		main.prepend(interfaceFrame);
 	}
 	setupMIDI(node);
 	await setupParameters(node);
 	await setupPresets(node);
+	renderPluginInfo();
 	setStatus('');
 
 	clearInterval(performanceTimer);
@@ -412,7 +685,8 @@ async function start(context) {
 	}, 1000);
 }
 
-function stop() {
+function unloadPlugin() {
+	++loadGeneration;
 	++parameterSetupGeneration;
 	++parameterRefreshGeneration;
 	clearInterval(performanceTimer);
@@ -421,29 +695,49 @@ function stop() {
 	inputPlaying = false;
 	audioElement.pause();
 	audioSource?.disconnect();
-	effectNode?.disconnect();
+	const previousNode = effectNode;
+	effectNode = null;
+	const pausePromise = previousNode?.pause?.();
+	pausePromise?.catch(() => {});
+	previousNode?.disconnect();
 	const replacementAudioElement = audioElement.cloneNode();
 	audioElement.replaceWith(replacementAudioElement);
 	audioElement = replacementAudioElement;
-	effectNode?.closeInterface?.();
+	previousNode?.closeInterface?.();
+	midiMappings?.cancelLearn?.();
 	midiMap.mappings = null;
+	midiMap.setMode(false);
+	midiMapSlot.hidden = true;
+	hostKeyboard.allNotesOff();
+	hostKeyboard.hidden = true;
+	document.body.removeAttribute('data-host-keyboard');
+	unbindInterfaceKeyboard(interfaceFrame);
 	interfaceFrame?.remove();
 	interfaceFrame = null;
-	effectNode = null;
 	audioSource = null;
+	effectControls.hidden = true;
 	midiSlot.replaceChildren();
 	parameterPanel.hidden = true;
 	parameters.replaceChildren();
 	parameterControls.clear();
+	parameterDefinitions.clear();
+	hostControlsVisible = false;
+	hostControlsToggle.hidden = true;
+	hostControlsToggle.textContent = 'UI';
+	hostControlsToggle.removeAttribute('aria-label');
+	hostControlsToggle.setAttribute('aria-pressed', 'false');
 	parameterFlags.clear();
 	midiMappings = null;
-	midiMappingsPanel.hidden = true;
-	midiMappingsPanel.open = false;
 	midiAvailable = false;
 	presetPanel.hidden = true;
 	presets = [];
 	$('#cpu').textContent = '';
 	$('#play-input').setAttribute('label', 'Play');
+	renderPluginInfo();
+}
+
+function stop() {
+	unloadPlugin();
 	setStatus('Press Start to load the plug-in.');
 }
 
@@ -456,18 +750,77 @@ function loadAudioFile(file) {
 	$('#play-input').setAttribute('label', 'Play');
 }
 
+function isWclapFile(file) {
+	const name = file?.name?.toLowerCase() || '';
+	return name.endsWith('.wclap')
+		|| name.endsWith('.wclap.tar.gz')
+		|| name.endsWith('.tar.gz')
+		|| file?.type === 'application/gzip'
+		|| file?.type === 'application/x-gzip';
+}
+
+async function loadWclapFile(file) {
+	if (!file) return;
+	if (!isWclapFile(file)) {
+		showError(new Error('Drop a .wclap or .tar.gz archive.'));
+		return;
+	}
+
+	const nextObjectUrl = URL.createObjectURL(file);
+	const nextWclap = new ClapAudioNode({url: nextObjectUrl});
+	const previousObjectUrl = archiveObjectUrl;
+	const context = audioControl.getContext();
+	const shouldStart = context?.state === 'running';
+	let committed = false;
+	archiveDrop.disabled = true;
+	setStatus(`Loading ${file.name || 'WCLAP archive'}…`);
+
+	try {
+		const nextPlugins = await nextWclap.plugins();
+		if (!nextPlugins.length) throw new Error('The WCLAP archive contains no plugins');
+
+		++loadGeneration;
+		archive = nextObjectUrl;
+		archiveObjectUrl = nextObjectUrl;
+		archiveLabel = file.name || 'WCLAP archive';
+		wclap = nextWclap;
+		globalThis.wclapModule = wclap;
+		pluginId = nextPlugins[0].id;
+		pluginsReady = Promise.resolve(nextPlugins);
+		unloadPlugin();
+		applyPluginCatalog(nextPlugins);
+		committed = true;
+		if (previousObjectUrl) URL.revokeObjectURL(previousObjectUrl);
+
+		if (shouldStart) {
+			await start(context);
+		} else {
+			setStatus(`Loaded ${archiveLabel}. Press Start audio.`);
+		}
+
+	} catch (error) {
+		if (!committed) URL.revokeObjectURL(nextObjectUrl);
+		showError(error);
+	} finally {
+		archiveDrop.disabled = false;
+	}
+}
+
 function showError(error) {
 	console.error(error);
 	setStatus(error?.message || String(error), true);
 }
 
-const pluginsReady = setupPlugins().catch(error => {
+pluginsReady = setupPlugins(wclap).catch(error => {
 	showError(error);
 	throw error;
 });
 
 audioControl.addEventListener('audio-started', event => {
 	if (!effectNode) start(event.detail.context).catch(showError);
+});
+audioControl.addEventListener('audio-state-change', event => {
+	if (event.detail.state === 'suspended') hostKeyboard.allNotesOff();
 });
 audioControl.addEventListener('audio-stopped', stop);
 
@@ -485,16 +838,52 @@ $('#play-input').addEventListener('button-trigger', async () => {
 $('#load-input').addEventListener('button-trigger', () => fileInput.click());
 fileInput.addEventListener('change', () => loadAudioFile(fileInput.files?.[0]));
 
+pluginInfoToggle.addEventListener('click', () => {
+	const visible = pluginInfoPanel.hidden;
+	pluginInfoPanel.hidden = !visible;
+	pluginInfoToggle.setAttribute('aria-pressed', String(visible));
+	pluginInfoToggle.setAttribute('aria-label', visible
+		? 'Hide plug-in information'
+		: 'Show plug-in information');
+});
+
+archiveDrop.addEventListener('click', () => archiveFile.click());
+archiveFile.addEventListener('change', () => {
+	const file = archiveFile.files?.[0];
+	archiveFile.value = '';
+	void loadWclapFile(file);
+});
+archiveDrop.addEventListener('dragover', event => {
+	event.preventDefault();
+	event.stopPropagation();
+	archiveDrop.setAttribute('data-dragover', '');
+	if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+});
+archiveDrop.addEventListener('dragleave', event => {
+	event.preventDefault();
+	event.stopPropagation();
+	archiveDrop.removeAttribute('data-dragover');
+});
+archiveDrop.addEventListener('drop', event => {
+	event.preventDefault();
+	event.stopPropagation();
+	archiveDrop.removeAttribute('data-dragover');
+	void loadWclapFile(event.dataTransfer?.files?.[0]);
+});
+
 document.body.addEventListener('dragover', event => {
 	event.preventDefault();
 });
 document.body.addEventListener('drop', event => {
+	if (event.defaultPrevented) return;
 	event.preventDefault();
-	loadAudioFile(event.dataTransfer?.files?.[0]);
+	const file = event.dataTransfer?.files?.[0];
+	if (isWclapFile(file)) void loadWclapFile(file);
+	else loadAudioFile(file);
 });
 
 presetSelector.addEventListener('change', async event => {
-	const preset = presets[Number(event.detail.value)];
+	const preset = presets[Number(event.target.value)];
 	if (!effectNode || !preset) return;
 	if (!await effectNode.loadPreset(preset)) {
 		throw new Error(`Could not load preset: ${preset.name}`);

@@ -16,7 +16,7 @@
       min-height: 100vh;
       margin: 0;
       display: grid;
-      grid-template-rows: auto auto auto 1fr;
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
     }
     header {
       min-height: 86px;
@@ -38,8 +38,7 @@
     }
     compost-audio,
     compost-button,
-    compost-midi,
-    compost-radio-group {
+    compost-midi {
       --compost-audio-text: #f4f4f4;
       --compost-audio-muted: #bbb;
       --compost-audio-inactive-color: #ddd;
@@ -74,69 +73,151 @@
       flex: 0 1 220px;
       min-width: 0;
     }
-    #preset-panel {
-      padding: 10px 18px;
-      border-bottom: 1px solid #393939;
-      background: #202020;
-    }
-    #plugin-panel,
-    #preset-panel,
+    #midi-map-slot[hidden],
     #parameter-panel[hidden],
     #plugin-panel[hidden],
     #preset-panel[hidden],
-    #midi-mappings-panel[hidden] { display: none; }
+    #plugin-info-panel[hidden] { display: none; }
     #plugin-panel,
     #preset-panel {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 1 auto;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+    #plugin-info-panel {
       padding: 10px 18px;
       border-bottom: 1px solid #393939;
       background: #202020;
     }
-    compost-radio-group {
-      --compost-radio-group-color: #ddd;
-      --compost-radio-group-fill: #8ee3b2;
-      --compost-radio-group-focus: #8ee3b2;
-      --compost-radio-group-color-scheme: dark;
+    #plugin-info-panel h2 {
+      margin: 0 0 8px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #bbb;
     }
-    compost-midi-map {
-      --compost-midi-map-bg: #252525;
-      --compost-midi-map-border: #ddd;
-      --compost-midi-map-text: #ddd;
-      --compost-midi-map-focus-color: #8ee3b2;
-      --compost-midi-map-color-scheme: dark;
-      --midi-map-learn-color: #8ee3b2;
-      font-size: 11px;
+    #plugin-info {
+      display: grid;
+      grid-template-columns: minmax(90px, max-content) minmax(0, 1fr);
+      gap: 5px 16px;
+      margin: 0;
+      max-width: 90ch;
+      font-size: 0.82rem;
     }
-    #midi-mappings-panel {
+    #plugin-info dt { color: #999; }
+    #plugin-info dd { margin: 0; color: #eee; overflow-wrap: anywhere; }
+    #midi-map-slot {
+      display: flex;
+      justify-content: flex-end;
+      padding: 8px 18px;
       border-bottom: 1px solid #393939;
       background: #171717;
     }
-    #midi-mappings-panel summary {
-      padding: 10px 18px;
-      color: #e7ebf0;
+    #midi-map-slot standalone-midi-map { width: min(100%, 360px); }
+    #archive-drop,
+    #plugin-info-toggle {
+      position: relative;
+      z-index: 1002;
+      border: 1px dashed #777;
+      border-radius: 4px;
+      background: #252525;
+      color: #ddd;
       cursor: pointer;
-      font-size: 0.78rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      list-style: none;
-      text-transform: uppercase;
+      font: inherit;
+      padding: 6px 9px;
+      white-space: nowrap;
     }
-    #midi-mappings-panel summary::-webkit-details-marker { display: none; }
-    #midi-mappings-panel summary::before {
-      content: '+';
-      display: inline-block;
-      width: 1.2em;
-      color: #8ee3b2;
+    #archive-drop:hover,
+    #archive-drop:focus-visible,
+    #archive-drop[data-dragover],
+    #plugin-info-toggle:hover,
+    #plugin-info-toggle:focus-visible {
+      border-color: #8ee3b2;
+      background: #303a34;
     }
-    #midi-mappings-panel[open] summary { border-bottom: 1px solid #393939; }
-    #midi-mappings-panel[open] summary::before { content: '−'; }
-    #midi-mappings-panel compost-midi-map { border-bottom: 0; }
+    #archive-drop:focus-visible,
+    #plugin-info-toggle:focus-visible {
+      outline: 2px solid #8ee3b2;
+      outline-offset: 2px;
+    }
+    #plugin-info-toggle[hidden] { display: none; }
+    #plugin-info-toggle[aria-pressed="true"] {
+      border-style: solid;
+      border-color: #8ee3b2;
+      background: #8ee3b2;
+      color: #171717;
+    }
+    #plugin-panel label,
+    #preset-panel label {
+      display: inline;
+      margin: 0;
+      color: #bbb;
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+    #plugin-panel select,
+    #preset-panel select {
+      appearance: auto;
+      -webkit-appearance: menulist;
+      width: clamp(10ch, 20vw, 220px);
+      min-width: 0;
+      max-width: 220px;
+      padding: 3px 5px;
+      background: #252525;
+      color: #eee;
+      font: inherit;
+    }
+    #plugin-panel select:focus-visible,
+    #preset-panel select:focus-visible {
+      outline: 2px solid #8ee3b2;
+      outline-offset: 2px;
+    }
     #effect-controls[hidden] { display: none; }
+    #host-controls-toggle[hidden] { display: none; }
+    #host-controls-toggle {
+      border: 1px solid #777;
+      border-radius: 4px;
+      background: #252525;
+      color: #ddd;
+      cursor: pointer;
+      font: inherit;
+      padding: 6px 9px;
+    }
+    #host-controls-toggle[aria-pressed="true"] {
+      border-color: #8ee3b2;
+      background: #8ee3b2;
+      color: #171717;
+    }
+    #host-controls-toggle:focus-visible {
+      outline: 2px solid #8ee3b2;
+      outline-offset: 2px;
+    }
     #effect-controls {
       display: flex;
       align-items: center;
       gap: 4px;
       flex: 0 0 auto;
     }
+    #host-keyboard[hidden] { display: none; }
+    #host-keyboard {
+      --compost-piano-height: 112px;
+      --compost-piano-background: #202020;
+      --piano-natural-background: #f4f4f4;
+      --piano-natural-border: #777;
+      --piano-accidental-background: #171717;
+      --piano-accidental-border: #000;
+      --piano-active-background: #8ee3b2;
+      --piano-active-border: #8ee3b2;
+      --piano-label: #555;
+      --piano-active-label: #171717;
+      --compost-piano-color-scheme: dark;
+    }
+    body[data-host-keyboard] main { padding-bottom: 144px; }
+    body[data-host-keyboard] iframe { max-height: calc(100vh - 340px); }
     main {
       min-height: 0;
       padding: 18px;
@@ -210,28 +291,36 @@
     input[type="file"] { display: none; }
   </style>
 </head>
-<body data-archive="examples/public/char-example-synth.wclap.tar.gz?v=20260806-midi-map">
+<body data-archive="examples/public/char-example-synth.wclap.tar.gz?v=20260808-host-ui">
   <script src="./page-proxy-service-worker.js"></script>
   <header>
     <h1 id="plugin-name">Compost</h1>
+    <button id="archive-drop" type="button" aria-label="Load a WCLAP plug-in">Load WCLAP</button>
     <div id="midi-slot"></div>
     <div id="effect-controls" hidden>
       <compost-button id="play-input" label="Play"></compost-button>
       <compost-button id="load-input" label="Load"></compost-button>
     </div>
-    <compost-audio start-label="Start" stop-label="Stop"></compost-audio>
+    <button id="host-controls-toggle" type="button" hidden aria-pressed="false">UI</button>
+    <button id="plugin-info-toggle" type="button" hidden aria-pressed="false">Info</button>
+    <section id="plugin-panel" aria-label="Plugins" hidden>
+      <label for="plugins">Plugin</label>
+      <select id="plugins" aria-label="Plugin"></select>
+    </section>
+    <section id="preset-panel" aria-label="Presets" hidden>
+      <label for="presets">Preset</label>
+      <select id="presets" aria-label="Preset"></select>
+    </section>
+    <compost-audio modal centered-while-off start-label="Start audio" stop-label="Stop audio"></compost-audio>
     <output id="cpu" aria-label="CPU use"></output>
   </header>
-  <section id="plugin-panel" aria-label="Plugins" hidden>
-    <compost-radio-group id="plugins" label="Plugin"></compost-radio-group>
+  <section id="plugin-info-panel" aria-label="Plug-in information" hidden>
+    <h2>Plug-in information</h2>
+    <dl id="plugin-info"></dl>
   </section>
-  <section id="preset-panel" aria-label="Presets" hidden>
-    <compost-radio-group id="presets" label="Presets"></compost-radio-group>
+  <section id="midi-map-slot" aria-label="MIDI mapping" hidden>
+    <standalone-midi-map id="midi-map"></standalone-midi-map>
   </section>
-  <details id="midi-mappings-panel" aria-label="MIDI mappings" hidden>
-    <summary>MIDI mapping</summary>
-    <compost-midi-map id="midi-map" label="Map MIDI"></compost-midi-map>
-  </details>
   <main>
     <output id="status" role="status">Press Start to load the plug-in.</output>
     <section id="parameter-panel" aria-label="Parameters" hidden>
@@ -239,8 +328,10 @@
       <div id="parameters"></div>
     </section>
   </main>
+  <compost-piano id="host-keyboard" root-note="36" note-count="49" hidden></compost-piano>
   <audio id="input-audio" src="./audio/loop.mp3" loop crossorigin="anonymous"></audio>
   <input id="audio-file" type="file" accept="audio/*">
-  <script type="module" src="./main.js?v=20260806-midi-map"></script>
+  <input id="archive-file" type="file" accept=".wclap,.wclap.tar.gz,.tar.gz,application/gzip,application/x-gzip">
+  <script type="module" src="./main.js?v=20260808-audio-default"></script>
 </body>
 </html>
