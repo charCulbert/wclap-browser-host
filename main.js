@@ -166,13 +166,41 @@ async function setupPlugins(module = wclap) {
 	return plugins;
 }
 
-pluginSelector.addEventListener('change', event => {
-	const nextPluginID = event.target.value;
-	if (!nextPluginID || nextPluginID === pluginId) return;
+function updatePluginURL(nextPluginID) {
 	const nextQuery = new URLSearchParams(location.search);
-	nextQuery.set('plugin', nextPluginID);
+	if (nextPluginID) nextQuery.set('plugin', nextPluginID);
+	else nextQuery.delete('plugin');
 	nextQuery.delete('state');
-	location.href = `${location.pathname}?${nextQuery}${location.hash}`;
+	const search = nextQuery.toString();
+	history.replaceState(null, '', `${location.pathname}${search ? `?${search}` : ''}${location.hash}`);
+}
+
+async function selectPlugin(nextPluginID) {
+	if (!nextPluginID || nextPluginID === pluginId) return;
+
+	const context = audioControl.getContext();
+	const shouldStart = context?.state === 'running';
+	pluginSelector.disabled = true;
+	setStatus(`Loading ${pluginCatalog.find(plugin => plugin.id === nextPluginID)?.name || 'plug-in'}…`);
+
+	try {
+		await storeState();
+		pluginId = nextPluginID;
+		updatePluginURL(pluginId);
+		unloadPlugin();
+		pluginSelector.value = pluginId;
+
+		if (shouldStart) await start(context);
+		else setStatus(`Selected ${pluginCatalog.find(plugin => plugin.id === pluginId)?.name || 'plug-in'}. Press Start audio.`);
+	} catch (error) {
+		showError(error);
+	} finally {
+		pluginSelector.disabled = false;
+	}
+}
+
+pluginSelector.addEventListener('change', event => {
+	void selectPlugin(event.target.value);
 });
 
 function workletChannelForMapping(mapping) {
