@@ -251,7 +251,7 @@ export default class ClapAudioNode {
 					console.warn(
 						`SharedArrayBuffer not available due to ${reason}, falling back to MessagePort for passing MIDI. `
 						+ "Enable Cross-Origin-Opener-Policy: same-origin and "
-						+ "Cross-Origin-Embedder-Policy: credentialless to use SharedArrayBuffer "
+						+ "Cross-Origin-Embedder-Policy: require-corp to use SharedArrayBuffer "
 						+ "for better MIDI scheduling precision."
 					);
 					ClapAudioNode.#warnedNoSharedMidi = true;

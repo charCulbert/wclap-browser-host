@@ -112,7 +112,7 @@ if (typeof ServiceWorkerGlobalScope !== "function") {
 							let response = new Response(blobOrNull);
 							response.headers.set("Access-Control-Allow-Origin", "*");
 							response.headers.set("Cross-Origin-Opener-Policy", "noopener-allow-popups");
-							response.headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+								response.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
 							return pass(response);
 						}
 						pass(new Response(new Blob(["404 Not Found\n" + url], {type: 'text/plain'}), {status: 404}));
