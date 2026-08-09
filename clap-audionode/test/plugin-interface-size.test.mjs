@@ -21,6 +21,22 @@ test('caps freely resizable interfaces to the viewport', () => {
 	assert.deepEqual(size, available);
 });
 
+test('keeps freely resizable interfaces large enough to use', () => {
+	const size = constrainPluginInterfaceSize(20, 10, {width: 640, height: 420}, {
+		canResizeHorizontally: true,
+		canResizeVertically: true,
+	}, available);
+	assert.deepEqual(size, {width: 240, height: 160});
+});
+
+test('lets a small viewport override the host minimum', () => {
+	const size = constrainPluginInterfaceSize(20, 10, {width: 640, height: 420}, {
+		canResizeHorizontally: true,
+		canResizeVertically: true,
+	}, {width: 180, height: 100});
+	assert.deepEqual(size, {width: 180, height: 100});
+});
+
 test('honours horizontal-only and vertical-only hints', () => {
 	assert.deepEqual(
 		constrainPluginInterfaceSize(700, 600, {width: 520, height: 320}, {
@@ -50,6 +66,8 @@ test('preserves the advertised aspect ratio while dragging and fitting', () => {
 		{width: 700, height: 500});
 	assert.ok(Math.abs(fitted.width / fitted.height - 4 / 3) < Number.EPSILON * 2);
 	assert.equal(fitted.height, 500);
+	const minimum = constrainPluginInterfaceSize(-100, -100, {width: 800, height: 600}, hints, available);
+	assert.deepEqual(minimum, {width: 240, height: 180});
 });
 
 test('does not distort an interface with no resizable axis', () => {
