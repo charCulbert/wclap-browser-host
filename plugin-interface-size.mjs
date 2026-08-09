@@ -1,5 +1,5 @@
-const minimumWidth = 240;
-const minimumHeight = 160;
+const minimumWidth = 280;
+const minimumHeight = 180;
 
 export function constrainPluginInterfaceSize(width, height, anchor, resizeInfo, available) {
 	if (!resizeInfo.canResizeHorizontally) width = anchor.width;
