@@ -359,6 +359,8 @@ iframe {
 }
 
 #parameter-panel {
+  width: min(100%, 720px);
+  justify-self: center;
   display: grid;
   align-self: start;
   align-content: start;
