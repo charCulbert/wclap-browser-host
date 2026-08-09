@@ -16,6 +16,8 @@ export function hostImports() {
 			paramsRescan: (pluginPtr, flags) => {
 				throw Error("paramsRescan");
 			},
+			guiResizeHintsChanged: () => {},
+			guiRequestResize: () => false,
 			presetLoadError: () => {},
 			presetLoaded: () => {},
 			log: (pluginPtr, severity, msgPtr, length) => {

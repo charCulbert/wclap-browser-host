@@ -14,6 +14,10 @@ __attribute__((import_module("env"), import_name("stateMarkDirty")))
 extern bool pluginStateMarkDirty(const void *plugin);
 __attribute__((import_module("env"), import_name("paramsRescan")))
 extern bool pluginParamsRescan(const void *plugin, uint32_t flags);
+__attribute__((import_module("env"), import_name("guiResizeHintsChanged")))
+extern void pluginGuiResizeHintsChanged(const void *plugin);
+__attribute__((import_module("env"), import_name("guiRequestResize")))
+extern bool pluginGuiRequestResize(const void *plugin, uint32_t width, uint32_t height);
 __attribute__((import_module("env"), import_name("presetLoadError")))
 extern void pluginPresetLoadError(const void *plugin, uint32_t locationKind,
 	uint32_t locationPtr, uint32_t locationLength, uint32_t loadKeyPtr,
@@ -57,6 +61,8 @@ struct HostedPlugin {
 	Pointer<const wclap_plugin_state> stateExtPtr;
 	Pointer<const wclap_plugin_tail> tailExtPtr;
 	Pointer<const wclap_plugin_webview> webviewExtPtr;
+	bool guiCreated = false;
+	bool guiVisible = false;
 	
 	// When active, this points to a struct in the Instance's memory, including buffers which the JS-side host knows how to fill out
 	Pointer<wclap_process> processStructPtr;
@@ -161,6 +167,7 @@ struct HostedPlugin {
 	}
 	~HostedPlugin() {
 		if (pluginPtr) {
+			closeGui();
 			callPlugin(pluginPtr[&wclap_plugin::destroy]);
 		}
 		arenaPool.returnToPool(audioThreadArena);
@@ -186,6 +193,123 @@ struct HostedPlugin {
 		stateExtPtr = callPlugin(plugin.get_extension, scoped.writeString("clap.state")).cast<wclap_plugin_state>();
 		tailExtPtr = callPlugin(plugin.get_extension, scoped.writeString("clap.tail")).cast<wclap_plugin_tail>();
 		webviewExtPtr = callPlugin(plugin.get_extension, scoped.writeString("clap.webview/3")).cast<wclap_plugin_webview>();
+	}
+
+	struct GuiInfo {
+		bool available = false;
+		bool canResize = false;
+		bool canResizeHorizontally = false;
+		bool canResizeVertically = false;
+		bool preserveAspectRatio = false;
+		uint32_t aspectRatioWidth = 0;
+		uint32_t aspectRatioHeight = 0;
+		uint32_t width = 0;
+		uint32_t height = 0;
+	};
+
+	GuiInfo getGuiInfo() {
+		GuiInfo info;
+		if (!guiCreated || !guiExtPtr) return info;
+
+		auto gui = instance->get(guiExtPtr);
+		auto scoped = arenaPool.scoped();
+		auto widthPtr = scoped.copyAcross(uint32_t{0});
+		auto heightPtr = scoped.copyAcross(uint32_t{0});
+		info.canResize = callPlugin(gui.can_resize);
+		info.canResizeHorizontally = info.canResize;
+		info.canResizeVertically = info.canResize;
+		if (info.canResize) {
+			auto hintsPtr = scoped.copyAcross(wclap_gui_resize_hints{});
+			if (callPlugin(gui.get_resize_hints, hintsPtr)) {
+				auto hints = instance->get(hintsPtr);
+				info.canResizeHorizontally = hints.can_resize_horizontally;
+				info.canResizeVertically = hints.can_resize_vertically;
+				info.preserveAspectRatio = hints.preserve_aspect_ratio;
+				info.aspectRatioWidth = hints.aspect_ratio_width;
+				info.aspectRatioHeight = hints.aspect_ratio_height;
+			}
+		}
+		info.available = callPlugin(gui.get_size, widthPtr, heightPtr);
+		if (info.available) {
+			info.width = instance->get(widthPtr);
+			info.height = instance->get(heightPtr);
+		}
+		return info;
+	}
+
+	void writeGuiInfo(CborWriter &cbor, const GuiInfo &info) {
+		cbor.openMap();
+		cbor.addUtf8("available"); cbor.addBool(info.available);
+		cbor.addUtf8("canResize"); cbor.addBool(info.canResize);
+		cbor.addUtf8("canResizeHorizontally"); cbor.addBool(info.canResizeHorizontally);
+		cbor.addUtf8("canResizeVertically"); cbor.addBool(info.canResizeVertically);
+		cbor.addUtf8("preserveAspectRatio"); cbor.addBool(info.preserveAspectRatio);
+		cbor.addUtf8("aspectRatioWidth"); cbor.addInt(info.aspectRatioWidth);
+		cbor.addUtf8("aspectRatioHeight"); cbor.addInt(info.aspectRatioHeight);
+		cbor.addUtf8("width"); cbor.addInt(info.width);
+		cbor.addUtf8("height"); cbor.addInt(info.height);
+		cbor.close();
+	}
+
+	void closeGui() {
+		if (!guiCreated || !guiExtPtr) return;
+		auto gui = instance->get(guiExtPtr);
+		if (guiVisible) callPlugin(gui.hide);
+		callPlugin(gui.destroy);
+		guiVisible = false;
+		guiCreated = false;
+	}
+
+	void setGuiOpen(bool open, bool visible, CborWriter &cbor) {
+		if (!open) {
+			closeGui();
+			return writeGuiInfo(cbor, {});
+		}
+
+		if (!guiCreated) {
+			if (!guiExtPtr || !webviewExtPtr) return writeGuiInfo(cbor, {});
+			auto gui = instance->get(guiExtPtr);
+			auto scoped = arenaPool.scoped();
+			auto api = scoped.writeString(WCLAP_WINDOW_API_WEBVIEW);
+			if (!callPlugin(gui.is_api_supported, api, false)
+				|| !callPlugin(gui.create, api, false)) return writeGuiInfo(cbor, {});
+
+			guiCreated = true;
+			wclap_window window{};
+			window.api = api;
+			window.ptr = {0};
+			if (!callPlugin(gui.set_parent, scoped.copyAcross(window))) {
+				closeGui();
+				return writeGuiInfo(cbor, {});
+			}
+		}
+
+		auto gui = instance->get(guiExtPtr);
+		if (visible != guiVisible) {
+			if (!callPlugin(visible ? gui.show : gui.hide)) {
+				closeGui();
+				return writeGuiInfo(cbor, {});
+			}
+			guiVisible = visible;
+		}
+		writeGuiInfo(cbor, getGuiInfo());
+	}
+
+	void setGuiSize(uint32_t width, uint32_t height, CborWriter &cbor) {
+		if (!guiCreated || !guiExtPtr) return writeGuiInfo(cbor, {});
+		auto gui = instance->get(guiExtPtr);
+		if (!callPlugin(gui.can_resize)) return writeGuiInfo(cbor, getGuiInfo());
+
+		auto scoped = arenaPool.scoped();
+		auto widthPtr = scoped.copyAcross(width);
+		auto heightPtr = scoped.copyAcross(height);
+		if (!callPlugin(gui.adjust_size, widthPtr, heightPtr))
+			return writeGuiInfo(cbor, getGuiInfo());
+		width = instance->get(widthPtr);
+		height = instance->get(heightPtr);
+		if (!callPlugin(gui.set_size, width, height))
+			return writeGuiInfo(cbor, getGuiInfo());
+		writeGuiInfo(cbor, getGuiInfo());
 	}
 	
 	void mainThread() {
@@ -563,11 +687,10 @@ struct HostedPlugin {
 	}
 		
 	void guiResizeHintsChanged() {
-		LOG_EXPR("host_gui.resize_hints_changed()");
+		pluginGuiResizeHintsChanged(this);
 	}
 	bool guiRequestResize(uint32_t width, uint32_t height) {
-		LOG_EXPR("host_gui.request_resize()");
-		return false;
+		return pluginGuiRequestResize(this, width, height);
 	}
 	bool guiRequestShow() {
 		LOG_EXPR("host_gui.request_show()");
