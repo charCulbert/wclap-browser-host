@@ -1,0 +1,477 @@
+:root {
+  --bg: var(--compost-theme-bg);
+  --panel: var(--compost-theme-panel);
+  --line: var(--compost-theme-line);
+  --text: var(--compost-theme-text);
+  --muted: var(--compost-theme-muted);
+  --accent: var(--compost-theme-accent);
+  --danger: var(--compost-theme-danger);
+  --control-bg: var(--compost-theme-control-bg);
+  --control-border: var(--compost-theme-control-border);
+  --active-text: var(--compost-theme-active-text);
+  --toolbar-height: 50px;
+  --midi-drawer-space: 0px;
+  color-scheme: var(--compost-theme-color-scheme);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+
+body[data-midi-map-mode]::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  border: 3px solid var(--compost-theme-learn);
+  box-shadow: inset 0 0 28px color-mix(in srgb, var(--compost-theme-learn) 12%, transparent);
+}
+
+button, input, select, textarea { font: inherit; }
+h1, h2, p { margin: 0; }
+[hidden] { display: none !important; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.app-frame {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.host-toolbar {
+  position: relative;
+  z-index: 30;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  min-height: var(--toolbar-height);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.host-toolbar > * {
+  flex: 0 0 auto;
+}
+
+.host-toolbar compost-audio {
+  --compost-audio-button-size: calc(var(--toolbar-height) - 1px);
+  --compost-audio-button-border: transparent;
+  --compost-audio-button-border-width: 0;
+  --compost-audio-ring-width: 0;
+  --compost-audio-ring-space: 0;
+  --compost-audio-focus-bracket-offset: 0px;
+  --compost-audio-focus-bracket-pulse-offset: 0px;
+  --compost-button-width: calc(var(--toolbar-height) - 1px);
+  --compost-button-height: calc(var(--toolbar-height) - 1px);
+  height: calc(var(--toolbar-height) - 1px);
+  font-size: 20px;
+}
+
+.host-toolbar compost-audio[centered-while-off]:not([running]) {
+  --compost-audio-button-size: 88px;
+  --compost-button-width: 88px;
+  --compost-button-height: 88px;
+  --compost-audio-button-border: var(--text);
+  --compost-audio-button-border-width: 3px;
+  --compost-audio-ring-width: 2px;
+  --compost-audio-ring-space: 10px;
+  --compost-audio-centered-placeholder-height: calc(var(--toolbar-height) - 1px);
+}
+
+.host-toolbar compost-audio::part(power-button),
+.host-toolbar compost-audio::part(button) {
+  --compost-button-focus-bracket-offset: 0px;
+  --compost-button-focus-bracket-pulse-offset: 0px;
+  --compost-button-focus-bracket-length: 0px;
+  --compost-button-focus-bracket-thickness: 0px;
+}
+
+#midi-map-toggle,
+#effect-controls compost-button {
+  --compost-button-width: 82px;
+  --compost-button-height: calc(var(--toolbar-height) - 1px);
+  --compost-button-ring-space: 0;
+  --compost-button-border-width: 0;
+  --compost-button-outline-width: 0;
+  --compost-button-focus-bracket-offset: 0px;
+  --compost-button-focus-bracket-pulse-offset: 0px;
+  --compost-button-focus-bracket-length: 0px;
+  --compost-button-focus-bracket-thickness: 0px;
+  --compost-button-bg: var(--panel);
+  --compost-button-gap: var(--panel);
+  height: calc(var(--toolbar-height) - 1px);
+  border-left: 1px solid var(--line);
+  font: inherit;
+}
+
+#midi-map-toggle[pressed] {
+  --compost-button-fill: color-mix(in srgb, var(--compost-theme-learn) 78%, var(--panel));
+}
+
+#midi-map-toggle[pressed]::part(button) {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--compost-theme-learn) 72%, var(--panel)),
+    color-mix(in srgb, var(--compost-theme-learn) 58%, var(--panel))
+  );
+  animation: midi-map-frame 2.8s ease-in-out infinite;
+}
+
+#midi-map-toggle::part(button) { outline: 0; }
+
+#midi-map-toggle:focus-within::part(button) {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+@keyframes midi-map-frame {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  50% {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+}
+
+#effect-controls {
+  display: flex;
+  align-items: stretch;
+}
+
+#effect-controls compost-button {
+  --compost-button-width: 58px;
+}
+
+.toolbar-button {
+  min-width: 58px;
+  height: calc(var(--toolbar-height) - 1px);
+  padding: 0 12px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toolbar-button:hover,
+.toolbar-button[data-dragover] {
+  background: color-mix(in srgb, var(--panel) 88%, var(--text));
+}
+
+.toolbar-button:focus-visible {
+  position: relative;
+  z-index: 2;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.toolbar-button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--active-text);
+}
+
+.toolbar-select {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: calc(var(--toolbar-height) - 1px);
+  border-left: 1px solid var(--line);
+}
+
+.toolbar-select > span {
+  padding-left: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.toolbar-select compost-select {
+  width: clamp(130px, 17vw, 230px);
+  --compost-select-height: calc(var(--toolbar-height) - 1px);
+  --compost-select-popup-offset: 0px;
+  --compost-select-bg: var(--panel);
+  --compost-select-border: transparent;
+  --compost-select-hover-bg: color-mix(in srgb, var(--panel) 88%, var(--text));
+}
+
+.toolbar-select compost-select::part(button) {
+  border: 0;
+  outline-offset: -2px;
+}
+
+#cpu {
+  flex: 0 0 auto;
+  min-width: 90px;
+  margin-left: auto;
+  padding: 0 10px;
+  display: grid;
+  place-items: center end;
+  color: var(--muted);
+  border-left: 1px solid var(--line);
+  font: 11px ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+#plugin-info-panel {
+  position: relative;
+  z-index: 25;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+#plugin-info-panel h2,
+.drawer-section h2,
+#parameter-panel h2 {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#plugin-info {
+  display: grid;
+  grid-template-columns: minmax(90px, max-content) minmax(0, 1fr);
+  gap: 5px 16px;
+  max-width: 100ch;
+  margin: 0;
+  font-size: 12px;
+}
+
+#plugin-info dt { color: var(--muted); }
+#plugin-info dd { margin: 0; overflow-wrap: anywhere; }
+
+.midi-drawer {
+  --compost-drawer-size: 420px;
+  --compost-drawer-content-padding: 12px;
+  --compost-drawer-title-size: var(--toolbar-height);
+  --compost-drawer-title-padding: 9px 11px;
+  grid-column: 1;
+  grid-row: 3;
+  align-self: stretch;
+  min-width: 0;
+  height: 100%;
+  z-index: 20;
+}
+
+.midi-drawer:not([open]) {
+  width: var(--toolbar-height);
+}
+
+.midi-drawer-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.midi-activity-led {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--accent) 72%, transparent);
+  opacity: 0.18;
+  transition: opacity 20ms linear;
+}
+
+.midi-activity-led.active { opacity: 1; }
+
+.drawer-stack,
+.drawer-section {
+  display: grid;
+  min-width: 0;
+}
+
+.drawer-stack { gap: 16px; }
+.drawer-section { gap: 9px; }
+
+.drawer-section + .drawer-section {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.drawer-section p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+compost-midi {
+  width: 100%;
+  --compost-midi-columns: 1fr;
+}
+
+compost-midi-mappings {
+  --compost-midi-mappings-table-width: 100%;
+}
+
+compost-midi-mappings::part(heading) {
+  display: none;
+}
+
+main {
+  grid-column: 2;
+  grid-row: 3;
+  min-width: 0;
+  min-height: 0;
+  padding: 22px;
+  display: grid;
+  grid-template-rows: minmax(280px, 1fr) auto;
+  gap: 18px;
+  overflow: auto;
+}
+
+iframe {
+  width: min(100%, 640px);
+  height: 420px;
+  max-height: calc(100vh - 220px);
+  min-height: 280px;
+  aspect-ratio: 640 / 420;
+  justify-self: center;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--bg);
+}
+
+#parameter-panel {
+  display: grid;
+  align-self: start;
+  align-content: start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+#parameters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 116px));
+  justify-content: start;
+  align-items: start;
+  gap: 16px 12px;
+}
+
+#parameters compost-knob {
+  min-width: 0;
+  --knob-scale: 0.78;
+}
+
+#status {
+  place-self: center;
+  max-width: 70ch;
+  color: var(--muted);
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+#status[data-error] { color: var(--danger); }
+
+#host-keyboard {
+  --compost-piano-height: 112px;
+  --compost-piano-dock-offset: calc(var(--midi-drawer-space) / 2);
+  --compost-piano-background: var(--panel);
+  --piano-natural-background: #d8d8d6;
+  --piano-natural-border: #151515;
+  --piano-accidental-background: #151515;
+  --piano-accidental-border: #151515;
+  --piano-active-background: var(--accent);
+  --piano-active-border: var(--accent);
+  --piano-label: #555;
+  --piano-active-label: var(--active-text);
+  --compost-piano-color-scheme: dark;
+}
+
+body[data-host-keyboard] main { padding-bottom: 140px; }
+body[data-host-keyboard] iframe { max-height: calc(100vh - 300px); }
+
+audio,
+input[type="file"] { display: none; }
+
+@media (max-width: 900px) {
+  .host-toolbar {
+    flex-wrap: wrap;
+    align-content: start;
+    height: auto;
+  }
+
+  #cpu { margin-left: 0; }
+}
+
+@media (max-width: 600px) {
+  .app-frame {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .host-toolbar {
+    order: 1;
+    position: sticky;
+    top: 0;
+  }
+
+  .toolbar-select {
+    flex: 1 1 220px;
+  }
+
+  .toolbar-select compost-select {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  #plugin-info-panel { order: 2; }
+
+  .midi-drawer {
+    --compost-drawer-size: min(70dvh, 420px);
+    order: 3;
+    width: 100%;
+    height: auto;
+  }
+
+  .midi-drawer:not([open]) { width: 100%; }
+
+  main {
+    order: 4;
+    width: 100%;
+    min-height: calc(100dvh - var(--toolbar-height));
+    overflow: visible;
+    padding: 14px;
+  }
+
+  iframe { max-height: none; }
+
+  #host-keyboard {
+    --compost-piano-dock-offset: 0px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #midi-map-toggle[pressed]::part(button) { animation: none; }
+}

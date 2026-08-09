@@ -1,337 +1,89 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-compost-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Compost</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      font-family: system-ui, sans-serif;
-      background: #171717;
-      color: #f4f4f4;
-    }
-    * { box-sizing: border-box; }
-    body {
-      min-height: 100vh;
-      margin: 0;
-      display: grid;
-      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-    }
-    header {
-      min-height: 86px;
-      padding: 8px 18px;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 12px;
-      row-gap: 4px;
-      border-bottom: 1px solid #393939;
-      background: #202020;
-    }
-    h1 {
-      flex: 1 1 140px;
-      min-width: 0;
-      margin: 0;
-      font-size: 1rem;
-      font-weight: 600;
-    }
-    compost-audio,
-    compost-button,
-    compost-midi {
-      --compost-audio-text: #f4f4f4;
-      --compost-audio-muted: #bbb;
-      --compost-audio-inactive-color: #ddd;
-      --compost-audio-active-color: #8ee3b2;
-      --compost-audio-active-text: #171717;
-      --compost-audio-button-bg: #252525;
-      --compost-audio-button-size: 54px;
-      --compost-audio-button-gap: #202020;
-      --compost-audio-focus-bracket-color: #8ee3b2;
-      --compost-audio-color-scheme: dark;
-      --compost-button-size: 54px;
-      --compost-button-bg: #252525;
-      --compost-button-border: #ddd;
-      --compost-button-text: #ddd;
-      --compost-button-fill: #8ee3b2;
-      --compost-button-fill-text: #171717;
-      --compost-button-gap: #202020;
-      --compost-button-focus-bracket-color: #8ee3b2;
-      --compost-button-color-scheme: dark;
-      font-size: 11px;
-    }
-    compost-midi {
-      width: min(220px, 28vw);
-      --compost-midi-text: #f4f4f4;
-      --compost-midi-muted: #bbb;
-      --compost-midi-control-bg: #252525;
-      --compost-midi-control-border: #ddd;
-      --compost-midi-focus-color: #8ee3b2;
-      --compost-midi-color-scheme: dark;
-    }
-    #midi-slot {
-      flex: 0 1 220px;
-      min-width: 0;
-    }
-    #midi-map-slot[hidden],
-    #parameter-panel[hidden],
-    #plugin-panel[hidden],
-    #preset-panel[hidden],
-    #plugin-info-panel[hidden] { display: none; }
-    #plugin-panel,
-    #preset-panel {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex: 0 1 auto;
-      min-width: 0;
-      padding: 0;
-      border: 0;
-      background: transparent;
-    }
-    #plugin-info-panel {
-      padding: 10px 18px;
-      border-bottom: 1px solid #393939;
-      background: #202020;
-    }
-    #plugin-info-panel h2 {
-      margin: 0 0 8px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: #bbb;
-    }
-    #plugin-info {
-      display: grid;
-      grid-template-columns: minmax(90px, max-content) minmax(0, 1fr);
-      gap: 5px 16px;
-      margin: 0;
-      max-width: 90ch;
-      font-size: 0.82rem;
-    }
-    #plugin-info dt { color: #999; }
-    #plugin-info dd { margin: 0; color: #eee; overflow-wrap: anywhere; }
-    #midi-map-slot {
-      display: flex;
-      justify-content: flex-end;
-      padding: 8px 18px;
-      border-bottom: 1px solid #393939;
-      background: #171717;
-    }
-    #midi-map-slot standalone-midi-map { width: min(100%, 360px); }
-    #archive-drop,
-    #plugin-info-toggle {
-      position: relative;
-      z-index: 1002;
-      border: 1px dashed #777;
-      border-radius: 4px;
-      background: #252525;
-      color: #ddd;
-      cursor: pointer;
-      font: inherit;
-      padding: 6px 9px;
-      white-space: nowrap;
-    }
-    #archive-drop:hover,
-    #archive-drop:focus-visible,
-    #archive-drop[data-dragover],
-    #plugin-info-toggle:hover,
-    #plugin-info-toggle:focus-visible {
-      border-color: #8ee3b2;
-      background: #303a34;
-    }
-    #archive-drop:focus-visible,
-    #plugin-info-toggle:focus-visible {
-      outline: 2px solid #8ee3b2;
-      outline-offset: 2px;
-    }
-    #plugin-info-toggle[hidden] { display: none; }
-    #plugin-info-toggle[aria-pressed="true"] {
-      border-style: solid;
-      border-color: #8ee3b2;
-      background: #8ee3b2;
-      color: #171717;
-    }
-    #plugin-panel label,
-    #preset-panel label {
-      display: inline;
-      margin: 0;
-      color: #bbb;
-      font-size: 0.75rem;
-      white-space: nowrap;
-    }
-    #plugin-panel select,
-    #preset-panel select {
-      appearance: auto;
-      -webkit-appearance: menulist;
-      width: clamp(10ch, 20vw, 220px);
-      min-width: 0;
-      max-width: 220px;
-      padding: 3px 5px;
-      background: #252525;
-      color: #eee;
-      font: inherit;
-    }
-    #plugin-panel select:focus-visible,
-    #preset-panel select:focus-visible {
-      outline: 2px solid #8ee3b2;
-      outline-offset: 2px;
-    }
-    #effect-controls[hidden] { display: none; }
-    #host-controls-toggle[hidden] { display: none; }
-    #host-controls-toggle {
-      border: 1px solid #777;
-      border-radius: 4px;
-      background: #252525;
-      color: #ddd;
-      cursor: pointer;
-      font: inherit;
-      padding: 6px 9px;
-    }
-    #host-controls-toggle[aria-pressed="true"] {
-      border-color: #8ee3b2;
-      background: #8ee3b2;
-      color: #171717;
-    }
-    #host-controls-toggle:focus-visible {
-      outline: 2px solid #8ee3b2;
-      outline-offset: 2px;
-    }
-    #effect-controls {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      flex: 0 0 auto;
-    }
-    #host-keyboard[hidden] { display: none; }
-    #host-keyboard {
-      --compost-piano-height: 112px;
-      --compost-piano-background: #202020;
-      --piano-natural-background: #f4f4f4;
-      --piano-natural-border: #777;
-      --piano-accidental-background: #171717;
-      --piano-accidental-border: #000;
-      --piano-active-background: #8ee3b2;
-      --piano-active-border: #8ee3b2;
-      --piano-label: #555;
-      --piano-active-label: #171717;
-      --compost-piano-color-scheme: dark;
-    }
-    body[data-host-keyboard] main { padding-bottom: 144px; }
-    body[data-host-keyboard] iframe { max-height: calc(100vh - 340px); }
-    main {
-      min-height: 0;
-      padding: 18px;
-      display: grid;
-      grid-template-rows: minmax(280px, 1fr) auto;
-      gap: 18px;
-    }
-    iframe {
-      width: min(100%, 640px);
-      height: 420px;
-      max-height: calc(100vh - 230px);
-      min-height: 280px;
-      aspect-ratio: 640 / 420;
-      justify-self: center;
-      border: 0;
-      border-radius: 8px;
-      background: #171717;
-    }
-    #parameter-panel {
-      display: grid;
-      gap: 10px;
-      padding: 12px;
-      border: 1px solid #393939;
-      border-radius: 8px;
-      background: #202020;
-    }
-    #parameter-panel h2 {
-      margin: 0;
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: #bbb;
-    }
-    #parameters {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 10px 18px;
-    }
-    compost-slider {
-      --slider-panel-bg: transparent;
-      --slider-text: #f4f4f4;
-      --slider-value: #e1e7ee;
-      --slider-fill: #8ee3b2;
-      --slider-thumb: #f4f4f4;
-      --slider-thumb-border: #171717;
-      --slider-track: #6c7682;
-      --slider-value-editor-bg: #252525;
-      --slider-focus-bracket-color: #8ee3b2;
-      --midi-map-learn-color: #8ee3b2;
-      --midi-map-label-shadow: 0 1px 2px #171717;
-      min-width: 0;
-    }
-    #status {
-      place-self: center;
-      max-width: 70ch;
-      color: #bbb;
-      text-align: center;
-      white-space: pre-wrap;
-    }
-    #status[data-error] { color: #ff9b9b; }
-    #cpu {
-      flex: 0 0 auto;
-      min-width: 9ch;
-      width: max-content;
-      margin-left: auto;
-      color: #aaa;
-      font: 11px ui-monospace, monospace;
-      white-space: nowrap;
-      text-align: right;
-    }
-    audio,
-    input[type="file"] { display: none; }
-  </style>
+  <link rel="stylesheet" href="./compost/src/themes.css">
+  <link rel="stylesheet" href="./host.css">
 </head>
 <body data-archive="examples/public/char-example-synth.wclap.tar.gz?v=20260808-host-ui">
   <script src="./page-proxy-service-worker.js"></script>
-  <header>
-    <h1 id="plugin-name">Compost</h1>
-    <button id="archive-drop" type="button" aria-label="Load a WCLAP plug-in">Load WCLAP</button>
-    <div id="midi-slot"></div>
-    <div id="effect-controls" hidden>
-      <compost-button id="play-input" label="Play"></compost-button>
-      <compost-button id="load-input" label="Load"></compost-button>
-    </div>
-    <button id="host-controls-toggle" type="button" hidden aria-pressed="false">UI</button>
-    <button id="plugin-info-toggle" type="button" hidden aria-pressed="false">Info</button>
-    <section id="plugin-panel" aria-label="Plugins" hidden>
-      <label for="plugins">Plugin</label>
-      <select id="plugins" aria-label="Plugin"></select>
+  <div class="app-frame">
+    <header class="host-toolbar">
+      <h1 id="plugin-name" class="sr-only">Compost</h1>
+      <compost-audio
+        modal
+        centered-while-off
+        start-label="⏻"
+        stop-label="⏻"
+        start-aria-label="Start audio"
+        stop-aria-label="Suspend audio"
+        latency-hint="0"
+      ></compost-audio>
+      <compost-button id="midi-map-toggle" mode="switch" label="MIDI Map" hidden></compost-button>
+      <button id="archive-drop" class="toolbar-button" type="button" aria-label="Load a WCLAP plug-in">Load WCLAP</button>
+      <div id="effect-controls" hidden>
+        <compost-button id="play-input" label="Play"></compost-button>
+        <compost-button id="load-input" label="Load"></compost-button>
+      </div>
+      <section id="plugin-panel" class="toolbar-select" aria-label="Plugins" hidden>
+        <span>Plugin</span>
+        <compost-select id="plugins" name="plugin" aria-label="Plugin"></compost-select>
+      </section>
+      <section id="preset-panel" class="toolbar-select" aria-label="Presets" hidden>
+        <span>Preset</span>
+        <compost-select id="presets" name="preset" aria-label="Preset"></compost-select>
+      </section>
+      <button id="host-controls-toggle" class="toolbar-button" type="button" hidden aria-pressed="false">UI</button>
+      <button id="plugin-info-toggle" class="toolbar-button" type="button" hidden aria-pressed="false">Info</button>
+      <output id="cpu" aria-label="CPU use"></output>
+    </header>
+
+    <section id="plugin-info-panel" aria-label="Plug-in information" hidden>
+      <h2>Plug-in information</h2>
+      <dl id="plugin-info"></dl>
     </section>
-    <section id="preset-panel" aria-label="Presets" hidden>
-      <label for="presets">Preset</label>
-      <select id="presets" aria-label="Preset"></select>
-    </section>
-    <compost-audio modal centered-while-off start-label="Start audio" stop-label="Stop audio"></compost-audio>
-    <output id="cpu" aria-label="CPU use"></output>
-  </header>
-  <section id="plugin-info-panel" aria-label="Plug-in information" hidden>
-    <h2>Plug-in information</h2>
-    <dl id="plugin-info"></dl>
-  </section>
-  <section id="midi-map-slot" aria-label="MIDI mapping" hidden>
-    <standalone-midi-map id="midi-map"></standalone-midi-map>
-  </section>
-  <main>
-    <output id="status" role="status">Press Start to load the plug-in.</output>
-    <section id="parameter-panel" aria-label="Parameters" hidden>
-      <h2>Parameters</h2>
-      <div id="parameters"></div>
-    </section>
-  </main>
+
+    <compost-drawer
+      id="midi-drawer"
+      class="midi-drawer"
+      edge="left"
+      resizable
+      min-size="320"
+      max-size="560"
+      hidden
+    >
+      <span slot="title" class="midi-drawer-title">
+        MIDI
+        <span class="midi-activity-led" data-midi-activity aria-hidden="true"></span>
+      </span>
+      <div class="drawer-stack">
+        <section class="drawer-section">
+          <h2>Input</h2>
+          <div id="midi-slot"></div>
+        </section>
+        <section id="midi-mappings-section" class="drawer-section" hidden>
+          <h2>Mappings</h2>
+          <p>Use MIDI Map, then move a real MIDI CC over a plug-in control.</p>
+          <compost-midi-mappings id="midi-map"></compost-midi-mappings>
+        </section>
+      </div>
+    </compost-drawer>
+
+    <main>
+      <output id="status" role="status">Press Start to load the plug-in.</output>
+      <section id="parameter-panel" aria-label="Parameters" hidden>
+        <h2>Parameters</h2>
+        <div id="parameters"></div>
+      </section>
+    </main>
+  </div>
+
   <compost-piano id="host-keyboard" root-note="36" note-count="49" hidden></compost-piano>
   <audio id="input-audio" src="./audio/loop.mp3" loop crossorigin="anonymous"></audio>
   <input id="audio-file" type="file" accept="audio/*">
   <input id="archive-file" type="file" accept=".wclap,.wclap.tar.gz,.tar.gz,application/gzip,application/x-gzip">
-  <script type="module" src="./main.js?v=20260808-plugin-switch"></script>
+  <script type="module" src="./main.js?v=20260809-compost-host"></script>
 </body>
 </html>

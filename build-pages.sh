@@ -10,10 +10,10 @@ mkdir -p \
 
 cp \
 	_headers \
+	host.css \
 	index.html \
 	main.js \
 	page-proxy-service-worker.js \
-	standalone-midi-map.js \
 	dist/
 
 cp audio/loop.mp3 dist/audio/

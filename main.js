@@ -1,10 +1,13 @@
 import ClapAudioNode from './clap-audionode/clap-audionode.mjs?v=20260808-audio-restart2';
 import './compost/src/components/compost-audio.js?v=20260808-audio-default';
 import './compost/src/components/compost-button.js';
+import './compost/src/components/compost-drawer.js';
 import './compost/src/components/compost-midi.js';
+import './compost/src/components/compost-midi-mappings.js';
+import './compost/src/components/compost-knob.js';
 import './compost/src/components/compost-piano.js';
-import './compost/src/components/compost-slider.js';
-import './standalone-midi-map.js?v=20260808-host-ui3';
+import './compost/src/components/compost-select.js';
+import {midiMappingMatchesMessage} from './compost/src/midi-mapping.js';
 import {createMIDIMappings} from './compost/src/midi-mappings.js';
 
 const $ = document.querySelector.bind(document);
@@ -36,9 +39,12 @@ const hostControlsToggle = $('#host-controls-toggle');
 const pluginInfoToggle = $('#plugin-info-toggle');
 const hostKeyboard = $('#host-keyboard');
 const main = $('main');
+const midiDrawer = $('#midi-drawer');
+const midiActivityLED = $('[data-midi-activity]');
 const midiSlot = $('#midi-slot');
 const midiMap = $('#midi-map');
-const midiMapSlot = $('#midi-map-slot');
+const midiMapToggle = $('#midi-map-toggle');
+const midiMappingsSection = $('#midi-mappings-section');
 const parameterPanel = $('#parameter-panel');
 const parameters = $('#parameters');
 const pluginPanel = $('#plugin-panel');
@@ -48,6 +54,7 @@ const pluginInfo = $('#plugin-info');
 const presetPanel = $('#preset-panel');
 const presetSelector = $('#presets');
 const status = $('#status');
+const mobileLayout = matchMedia('(max-width: 600px)');
 
 const CLAP_PARAM_IS_STEPPED = 1 << 0;
 const CLAP_PARAM_IS_READONLY = 1 << 3;
@@ -72,6 +79,7 @@ let parameterSetupGeneration = 0;
 let parameterRefreshGeneration = 0;
 let midiMappings = null;
 let midiAvailable = false;
+let midiActivityTimeout = 0;
 let parameterDefinitions = new Map();
 let hostControlsVisible = false;
 let interfaceKeyWindow = null;
@@ -86,6 +94,24 @@ function setStatus(message, isError = false) {
 	status.toggleAttribute('data-error', isError);
 	status.hidden = !message;
 }
+
+function syncMIDIDrawerLayout() {
+	const isOpen = !midiDrawer.hidden && midiDrawer.open;
+	document.body.toggleAttribute('data-midi-drawer-open', isOpen);
+	document.documentElement.style.setProperty('--midi-drawer-space',
+		isOpen && !mobileLayout.matches ? `${midiDrawer.getBoundingClientRect().width}px` : '0px');
+}
+
+function syncMobileLayout() {
+	midiDrawer.setAttribute('edge', mobileLayout.matches ? 'top' : 'left');
+	midiDrawer.setAttribute('min-size', mobileLayout.matches ? '220' : '320');
+	requestAnimationFrame(syncMIDIDrawerLayout);
+}
+
+midiDrawer.addEventListener('toggle', () => requestAnimationFrame(syncMIDIDrawerLayout));
+midiDrawer.addEventListener('drawer-resize', () => requestAnimationFrame(syncMIDIDrawerLayout));
+mobileLayout.addEventListener('change', syncMobileLayout);
+syncMobileLayout();
 
 function stateStorageKey() {
 	return `wclap-browser-host:state:${archive}:${pluginId || ''}`;
@@ -235,11 +261,10 @@ hostKeyboard.addEventListener('note-up', event => sendHostNote(event.detail.note
 function mappingTarget(parameterID, name = '') {
 	const id = String(parameterID);
 	const definition = parameterDefinitions.get(id);
-	if (!definition) return false;
-
-	const started = midiMappings?.beginLearn?.(id) || false;
-	if (started) midiMap.setTarget(id, name || definition.name);
-	return started;
+	const target = parameterControls.get(id);
+	if (!definition || !target || midiMap.controller?.state === 'idle') return false;
+	if (name) target.setAttribute('label', name);
+	return midiMap.controller?.selectTarget(target, {focus: false}) || false;
 }
 
 function mappingIndication(node, mapping, hasMapping) {
@@ -263,8 +288,6 @@ async function installMapping(node, mapping) {
 		if (previous) await node.clearMidiCCMapping(workletMapping(node, previous));
 		await node.setMidiCCMapping(workletMapping(node, mapping));
 		midiMappings.applyMapping(mapping);
-		if (midiMap.mappingMode && midiMap.target?.parameterID === parameterID)
-			mappingTarget(parameterID, midiMap.target.name);
 		if (previous) await mappingIndication(node, previous, false);
 		await mappingIndication(node, mapping, true);
 	} catch (error) {
@@ -318,6 +341,9 @@ function configureMappings(node, params) {
 	midiMappings.addEventListener('midi-unmapping-request', event =>
 		void uninstallMapping(node, event.detail.parameterID));
 	midiMap.mappings = midiMappings;
+	const canMapMIDI = midiAvailable && definitions.size !== 0;
+	midiMappingsSection.hidden = !canMapMIDI;
+	midiMapToggle.hidden = !canMapMIDI;
 
 	const validPrevious = previousMappings.filter(mapping => definitions.has(mapping.parameterID));
 	if (validPrevious.length) {
@@ -329,22 +355,35 @@ function configureMappings(node, params) {
 function setupMIDI(node) {
 	midiSlot.replaceChildren();
 	midiAvailable = false;
-	midiMapSlot.hidden = true;
+	midiDrawer.hidden = true;
+	midiDrawer.open = false;
+	midiMappingsSection.hidden = true;
+	midiMapToggle.hidden = true;
+	midiMapToggle.pressed = false;
 	hostKeyboard.hidden = true;
 	document.body.removeAttribute('data-host-keyboard');
+	syncMIDIDrawerLayout();
 	const noteInputs = node.capabilities.noteInputs || [];
 	const acceptsMIDI = noteInputs.some(port => (port.supportedDialects & 2) !== 0);
 	if (!acceptsMIDI) return;
 	midiAvailable = true;
-	midiMapSlot.hidden = false;
+	midiDrawer.hidden = false;
 	hostKeyboard.hidden = false;
 	document.body.setAttribute('data-host-keyboard', '');
 
 	const midi = document.createElement('compost-midi');
+	midi.id = 'web-midi';
 	midi.setAttribute('input-only', '');
 	midi.addEventListener('midi-message', event => {
 		const data = event.detail.data;
-		midiMappings?.handleMIDIMessage(data);
+		clearTimeout(midiActivityTimeout);
+		midiActivityLED.classList.add('active');
+		midiActivityTimeout = setTimeout(() => midiActivityLED.classList.remove('active'), 60);
+		const learningTarget = midiMap.controller?.state === 'learning'
+			? midiMap.controller.lastTarget?.getAttribute?.('parameter-id')
+			: '';
+		const currentMapping = learningTarget ? midiMappings?.get(learningTarget) : null;
+		if (!midiMappingMatchesMessage(currentMapping, data)) midiMappings?.handleMIDIMessage(data);
 		hostKeyboard.handleExternalMIDI(data);
 		node.sendMidi(event.detail.data, {
 			timestamp: event.detail.timestamp ?? event.detail.receivedAt,
@@ -381,23 +420,21 @@ function updateHostControls(hasParameters, hasPluginUI) {
 }
 
 function cancelMIDIMap() {
-	if (!midiMap.mappingMode) return;
-	midiMappings?.cancelLearn?.();
-	midiMap.setMode(false);
+	if (!midiMap.controller || midiMap.controller.state === 'idle') return;
+	midiMap.controller.cancel('host');
 }
 
 function parameterIDFromKeyEvent(event) {
 	const target = event.composedPath?.().find(node =>
 		typeof node?.getAttribute === 'function' && node.getAttribute('parameter-id'));
 	return target?.getAttribute('parameter-id')
-		|| midiMap.target?.parameterID
-		|| midiMap.selectedParameterID
+		|| midiMap.controller?.lastTarget?.getAttribute?.('parameter-id')
 		|| '';
 }
 
 function handleInterfaceKeyDown(event) {
-	if (!midiMap.mappingMode) return;
-	if (event.key === 'Delete') {
+	if (!midiMap.controller || midiMap.controller.state === 'idle') return;
+	if (event.key === 'Delete' || event.key === 'Backspace') {
 		const parameterID = parameterIDFromKeyEvent(event);
 		if (parameterID && midiMappings?.get?.(parameterID)) {
 			event.preventDefault();
@@ -434,39 +471,21 @@ function unbindInterfaceKeyboard(frame) {
 	interfaceLoadHandler = null;
 }
 
-midiMap.addEventListener('midi-map-begin', () => {
-	midiMappings?.cancelLearn?.();
-	midiMap.setMode(true);
+midiMapToggle.addEventListener('change', () => {
+	if (!midiMap.controller) {
+		midiMapToggle.pressed = false;
+		return;
+	}
+	if (midiMapToggle.pressed) midiMap.controller.beginSelecting();
+	else midiMap.controller.cancel('toolbar');
 });
 
-midiMap.addEventListener('midi-map-cancel', () => {
-	cancelMIDIMap();
+midiMap.addEventListener('midi-map-mode-change', event => {
+	const active = event.detail?.active === true;
+	midiMapToggle.pressed = active;
+	document.body.toggleAttribute('data-midi-map-mode', active);
+	if (active) midiDrawer.open = true;
 });
-
-midiMap.addEventListener('midi-map-clear', event => {
-	midiMappings?.requestClear?.(event.detail?.parameterID);
-});
-
-midiMap.addEventListener('midi-map-clear-all', () => {
-	for (const mapping of midiMappings?.all?.() || [])
-		midiMappings.requestClear(mapping.parameterID);
-});
-
-parameters.addEventListener('parameter-begin', event => {
-	if (!midiMap.mappingMode) return;
-	const parameterID = event.detail?.parameterID;
-	const name = event.target?.getAttribute?.('label') || event.target?.textContent?.trim();
-	mappingTarget(parameterID, name);
-});
-
-parameters.addEventListener('keydown', event => {
-	if (!midiMap.mappingMode || event.key !== 'Delete') return;
-	const parameterID = event.target?.getAttribute?.('parameter-id');
-	if (!parameterID || !midiMappings?.get?.(parameterID)) return;
-	event.preventDefault();
-	event.stopPropagation();
-	midiMappings.requestClear(parameterID);
-}, true);
 
 function handleMappedValues(buffer) {
 	if (!(buffer instanceof ArrayBuffer)) return;
@@ -515,7 +534,7 @@ async function setupParameters(node) {
 	parameterControls.clear();
 	for (const param of params) {
 		const flags = Number(param.flags) || 0;
-		const control = document.createElement('compost-slider');
+		const control = document.createElement('compost-knob');
 		control.setAttribute('label', param.name);
 		control.setAttribute('parameter-id', String(param.id));
 		control.setAttribute('min', String(param.min));
@@ -672,7 +691,6 @@ async function start(context) {
 	};
 	node.events['mapped-param-values'] = handleMappedValues;
 	node.events.param_gesture_begin = parameterID => {
-		if (!midiMap.mappingMode) return;
 		mappingTarget(parameterID);
 	};
 
@@ -727,8 +745,14 @@ function unloadPlugin() {
 	previousNode?.closeInterface?.();
 	midiMappings?.cancelLearn?.();
 	midiMap.mappings = null;
-	midiMap.setMode(false);
-	midiMapSlot.hidden = true;
+	midiMapToggle.pressed = false;
+	midiMapToggle.hidden = true;
+	clearTimeout(midiActivityTimeout);
+	midiActivityLED.classList.remove('active');
+	document.body.removeAttribute('data-midi-map-mode');
+	midiMappingsSection.hidden = true;
+	midiDrawer.open = false;
+	midiDrawer.hidden = true;
 	hostKeyboard.allNotesOff();
 	hostKeyboard.hidden = true;
 	document.body.removeAttribute('data-host-keyboard');
@@ -750,6 +774,7 @@ function unloadPlugin() {
 	parameterFlags.clear();
 	midiMappings = null;
 	midiAvailable = false;
+	syncMIDIDrawerLayout();
 	presetPanel.hidden = true;
 	presets = [];
 	$('#cpu').textContent = '';
