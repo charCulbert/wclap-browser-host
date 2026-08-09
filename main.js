@@ -1,11 +1,11 @@
 import ClapAudioNode from './clap-audionode/clap-audionode.mjs?v=20260808-audio-restart2';
-import './compost/components/compost-audio.js?v=20260808-audio-default';
-import './compost/components/compost-button.js';
-import './compost/components/compost-midi.js';
-import './compost/components/compost-piano.js';
-import './compost/components/compost-slider.js';
+import './compost/src/components/compost-audio.js?v=20260808-audio-default';
+import './compost/src/components/compost-button.js';
+import './compost/src/components/compost-midi.js';
+import './compost/src/components/compost-piano.js';
+import './compost/src/components/compost-slider.js';
 import './standalone-midi-map.js?v=20260808-host-ui3';
-import {createMIDIMappings} from './compost/midi-mappings.js';
+import {createMIDIMappings} from './compost/src/midi-mappings.js';
 
 const $ = document.querySelector.bind(document);
 const query = new URLSearchParams(location.search);
