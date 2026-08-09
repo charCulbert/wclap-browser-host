@@ -13,6 +13,7 @@ cp \
 	host.css \
 	index.html \
 	main.js \
+	plugin-interface-size.mjs \
 	page-proxy-service-worker.js \
 	dist/
 
