@@ -3,7 +3,7 @@ import {hostImports, startThreadWorker} from "./host-imports.mjs";
 import CBOR from "./cbor.mjs";
 import {midiFrameFromTimestamp, SharedMidiEventQueue} from "./midi-event.mjs";
 
-const assetVersion = '20260808-audio-restart2';
+const assetVersion = '20260809-plugin-ui-resize-hints';
 
 function cloneMemory(memory, memorySpec = {}) {
 	const shared = typeof SharedArrayBuffer === 'function'
@@ -322,13 +322,19 @@ export default class ClapAudioNode {
 				};
 
 				let iframe = null;
+				let interfaceLoaded = false;
+				let pendingInterfaceMessages = [];
 
 				effectNode.port.onmessage = e => {
 					if (handleWorkerMessage(e.data)) return;
 					let data = e.data;
 					if (data instanceof ArrayBuffer) {
 						// it's a message from the plugin to the UI
-						if (iframe) iframe.contentWindow.postMessage(data, '*');
+						if (interfaceLoaded && iframe?.contentWindow) {
+							iframe.contentWindow.postMessage(data, '*');
+						} else if (iframe) {
+							pendingInterfaceMessages.push(data);
+						}
 						return;
 					}
 					if (typeof data[0] === 'string') {
@@ -358,11 +364,17 @@ export default class ClapAudioNode {
 						}
 					};
 					let visibilityHandler;
-					effectNode.openInterface = (uiOptions) => {
+					effectNode.openInterface = async (uiOptions) => {
 						iframe = document.createElement('iframe');
+						iframe.addEventListener('load', () => {
+							interfaceLoaded = true;
+							for (const message of pendingInterfaceMessages)
+								iframe.contentWindow.postMessage(message, '*');
+							pendingInterfaceMessages = [];
+						}, {once: true});
 						window.addEventListener('message', messageHandler);
 						window.addEventListener('visibilitychange', visibilityHandler = () => {
-							effectNode.webviewOpen(true, !document.hidden);
+							effectNode.webviewOpen(true, !document.hidden).catch(console.error);
 						});
 						let src = webview;
 						if (/^file:/.test(src) && uiOptions?.filePrefix) {
@@ -371,16 +383,27 @@ export default class ClapAudioNode {
 							src = uiOptions.resourcePrefix + webview;
 						}
 						iframe.src = new URL(src, document.baseURI);
-						effectNode.webviewOpen(true, !document.hidden);
+						try {
+							iframe.interfaceInfo = await effectNode.webviewOpen(true, !document.hidden);
+						} catch (error) {
+							window.removeEventListener('message', messageHandler);
+							window.removeEventListener('visibilitychange', visibilityHandler);
+							pendingInterfaceMessages = [];
+							iframe = null;
+							throw error;
+						}
 						return iframe;
 					};
 					effectNode.closeInterface = () => {
-						effectNode.webviewOpen(false);
+						const closing = effectNode.webviewOpen(false);
+						interfaceLoaded = false;
+						pendingInterfaceMessages = [];
 						if (iframe) {
 							window.removeEventListener('message', messageHandler);
 							window.removeEventListener('visibilitychange', visibilityHandler);
 						}
 						iframe = null;
+						return closing;
 					}
 				}
 

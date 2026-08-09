@@ -141,6 +141,15 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 					let processor = this.instancePluginMap[pluginPtr];
 					processor.port.postMessage(['params_rescan', flags]);
 				},
+				guiResizeHintsChanged: pluginPtr => {
+					let processor = this.instancePluginMap[pluginPtr];
+					processor.port.postMessage(['gui_resize_hints_changed', null]);
+				},
+				guiRequestResize: (pluginPtr, width, height) => {
+					let processor = this.instancePluginMap[pluginPtr];
+					processor.port.postMessage(['gui_request_resize', {width, height}]);
+					return true;
+				},
 				presetLoadError: (pluginPtr, locationKind, locationPtr, locationLength,
 					loadKeyPtr, loadKeyLength, osError, messagePtr, messageLength) => {
 					let processor = this.instancePluginMap[pluginPtr];
@@ -607,7 +616,12 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 			return this.decodeCbor(this.hostApi.pluginGetResource(this.pluginPtr, this.encodeString(path)));
 		},
 		webviewOpen(isOpen, isVisible) {
-			// TODO: let the `clap.gui` extension know
+			this.hostApi.pluginGuiSetOpen(this.pluginPtr, isOpen, isVisible, this.hostedBytes);
+			return this.decodeCbor();
+		},
+		setInterfaceSize(width, height) {
+			this.hostApi.pluginGuiSetSize(this.pluginPtr, width, height, this.hostedBytes);
+			return this.decodeCbor();
 		}
 	};
 

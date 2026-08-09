@@ -9,6 +9,7 @@ import './compost/src/components/compost-piano.js';
 import './compost/src/components/compost-select.js';
 import {midiMappingMatchesMessage} from './compost/src/midi-mapping.js';
 import {createMIDIMappings} from './compost/src/midi-mappings.js';
+import {constrainPluginInterfaceSize} from './plugin-interface-size.mjs';
 
 const $ = document.querySelector.bind(document);
 const query = new URLSearchParams(location.search);
@@ -67,6 +68,7 @@ const CLAP_PARAM_RESCAN_ALL = 1 << 3;
 let audioSource;
 let effectNode;
 let interfaceFrame;
+let interfaceSurface;
 let inputPlaying = false;
 let performanceTimer;
 let stateTimer;
@@ -140,22 +142,203 @@ async function storeState() {
 	sessionStorage.setItem(stateStorageKey(), state);
 }
 
-function openPluginInterface(node, pageProxy) {
+async function openPluginInterface(node, pageProxy) {
 	const frameId = `plugin-ui-${crypto.randomUUID()}`;
-	const frame = node.openInterface({
+	const frame = await node.openInterface({
 		filePrefix: `${pageProxy.prefix}${frameId}/file`,
 		resourcePrefix: `${pageProxy.prefix}${frameId}/get_resource`,
 	});
 	frame.id = frameId;
 	frame.title = `${node.descriptor.name} interface`;
-	frame.width = 640;
-	frame.height = 420;
 	frame[pageProxy.symbol] = async path => {
 		if (/^\/file\//.test(path)) return node.getFile(path.slice(5));
 		if (/^\/get_resource\//.test(path)) return node.getResource(path.slice(13));
 		return null;
 	};
+	const surface = document.createElement('div');
+	surface.className = 'plugin-interface';
+	surface.append(frame);
+	frame.interfaceSurface = surface;
 	return frame;
+}
+
+async function configurePluginInterface(node, frame) {
+	const surface = frame.interfaceSurface;
+	const resizeHandle = document.createElement('button');
+	resizeHandle.className = 'plugin-resize-handle';
+	resizeHandle.type = 'button';
+	resizeHandle.setAttribute('aria-label', `Resize ${node.descriptor.name} interface`);
+	surface.append(resizeHandle);
+	let resizeTimer = 0;
+	let lastWidth = 0;
+	let lastHeight = 0;
+	let drag = null;
+	let resizeInfo = {};
+	let viewportTimer = 0;
+	let resizeRequest = 0;
+
+	const availableSize = () => {
+		const style = getComputedStyle(main);
+		return {
+			width: main.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+			height: main.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+		};
+	};
+
+	const constrainSize = (width, height, anchor = {width: lastWidth, height: lastHeight}, available = availableSize()) => {
+		return constrainPluginInterfaceSize(width, height, anchor, resizeInfo, available);
+	};
+
+	const setSize = async (width, height) => {
+		const request = ++resizeRequest;
+		if (effectNode !== node) return;
+		try {
+			const info = await node.setInterfaceSize(width, height);
+			if (request === resizeRequest && effectNode === node) applyInfo(info);
+		} catch (error) {
+			if (request === resizeRequest) showError(error);
+		}
+	};
+
+	const requestSize = (width, height, immediate = false) => {
+		clearTimeout(resizeTimer);
+		resizeTimer = 0;
+		if (immediate) setSize(width, height);
+		else resizeTimer = setTimeout(() => setSize(width, height), 60);
+	};
+
+	const applySize = ({width, height} = {}) => {
+		width = Number(width);
+		height = Number(height);
+		if (!(width > 0 && height > 0)) return;
+		lastWidth = Math.round(width);
+		lastHeight = Math.round(height);
+		surface.style.width = `${lastWidth}px`;
+		surface.style.height = `${lastHeight}px`;
+	};
+
+	const applyInfo = info => {
+		resizeInfo = info || {};
+		const horizontal = Boolean(info?.canResize && info?.canResizeHorizontally);
+		const vertical = Boolean(info?.canResize && info?.canResizeVertically);
+		surface.toggleAttribute('data-resizable', horizontal || vertical);
+		resizeHandle.hidden = !(horizontal || vertical);
+		resizeHandle.style.cursor = horizontal && vertical ? 'nwse-resize'
+			: horizontal ? 'ew-resize' : 'ns-resize';
+		applySize(info);
+	};
+
+	const fitToViewport = async () => {
+		if (effectNode !== node || !resizeInfo.canResize) return;
+		const size = constrainSize(lastWidth, lastHeight);
+		if (Math.round(size.width) === lastWidth && Math.round(size.height) === lastHeight) return;
+		await setSize(size.width, size.height);
+	};
+
+	applyInfo(frame.interfaceInfo || {width: 640, height: 420});
+
+	const beginResize = event => {
+		if (event.button !== 0 || drag) return;
+		event.preventDefault();
+		clearTimeout(resizeTimer);
+		resizeTimer = 0;
+		++resizeRequest;
+		drag = {
+			pointerId: event.pointerId,
+			x: event.clientX,
+			y: event.clientY,
+			width: lastWidth,
+			height: lastHeight,
+			available: availableSize(),
+			frame: 0,
+			pending: null,
+		};
+		surface.toggleAttribute('data-resizing', true);
+		resizeHandle.setPointerCapture(event.pointerId);
+	};
+	resizeHandle.addEventListener('pointerdown', beginResize);
+	const continueResize = event => {
+		if (!drag || event.pointerId !== drag.pointerId) return;
+		if (!(event.buttons & 1)) {
+			finishResize(event);
+			return;
+		}
+		event.preventDefault();
+		const currentDrag = drag;
+		currentDrag.pending = constrainSize(
+			drag.width + event.clientX - drag.x,
+			drag.height + event.clientY - drag.y,
+			drag,
+			drag.available);
+		if (currentDrag.frame) return;
+		currentDrag.frame = requestAnimationFrame(() => {
+			currentDrag.frame = 0;
+			if (drag !== currentDrag || !currentDrag.pending) return;
+			applySize(currentDrag.pending);
+			requestSize(lastWidth, lastHeight);
+		});
+	};
+	const finishResize = event => {
+		if (!drag || (event.pointerId != null && event.pointerId !== drag.pointerId)) return;
+		const completedDrag = drag;
+		const pointerId = completedDrag.pointerId;
+		if (completedDrag.frame) cancelAnimationFrame(completedDrag.frame);
+		if (completedDrag.pending) applySize(completedDrag.pending);
+		drag = null;
+		surface.removeAttribute('data-resizing');
+		requestSize(lastWidth, lastHeight, true);
+		if (resizeHandle.hasPointerCapture(pointerId)) resizeHandle.releasePointerCapture(pointerId);
+	};
+	window.addEventListener('pointermove', continueResize, true);
+	window.addEventListener('pointerup', finishResize, true);
+	window.addEventListener('pointercancel', finishResize, true);
+	resizeHandle.addEventListener('lostpointercapture', finishResize);
+	window.addEventListener('blur', finishResize);
+	resizeHandle.addEventListener('keydown', event => {
+		const amount = event.shiftKey ? 10 : 1;
+		const change = {
+			ArrowLeft: [-amount, 0],
+			ArrowRight: [amount, 0],
+			ArrowUp: [0, -amount],
+			ArrowDown: [0, amount],
+		}[event.key];
+		if (!change) return;
+		event.preventDefault();
+		applySize(constrainSize(lastWidth + change[0], lastHeight + change[1]));
+		requestSize(lastWidth, lastHeight);
+	});
+
+	node.events.gui_request_resize = size => {
+		clearTimeout(resizeTimer);
+		resizeTimer = 0;
+		++resizeRequest;
+		applySize(size);
+	};
+	node.events.gui_resize_hints_changed = async () => {
+		if (effectNode !== node) return;
+		applyInfo(await node.webviewOpen(true, !document.hidden));
+		await fitToViewport();
+	};
+	const handleViewportResize = () => {
+		clearTimeout(viewportTimer);
+		viewportTimer = setTimeout(() => fitToViewport().catch(showError), 100);
+	};
+	window.addEventListener('resize', handleViewportResize);
+	frame.interfaceCleanup = () => {
+		clearTimeout(resizeTimer);
+		clearTimeout(viewportTimer);
+		resizeHandle.removeEventListener('pointerdown', beginResize);
+		window.removeEventListener('pointermove', continueResize, true);
+		window.removeEventListener('pointerup', finishResize, true);
+		window.removeEventListener('pointercancel', finishResize, true);
+		resizeHandle.removeEventListener('lostpointercapture', finishResize);
+		window.removeEventListener('blur', finishResize);
+		window.removeEventListener('resize', handleViewportResize);
+		delete node.events.gui_request_resize;
+		delete node.events.gui_resize_hints_changed;
+	};
+	frame.fitInterfaceToViewport = fitToViewport;
+	await fitToViewport();
 }
 
 function archiveDisplayName(source) {
@@ -398,7 +581,7 @@ function updateHostControls(hasParameters, hasPluginUI) {
 		hostControlsVisible = false;
 		hostControlsToggle.hidden = true;
 		parameterPanel.hidden = true;
-		if (interfaceFrame) interfaceFrame.hidden = false;
+		if (interfaceSurface) interfaceSurface.hidden = false;
 		return;
 	}
 
@@ -416,7 +599,7 @@ function updateHostControls(hasParameters, hasPluginUI) {
 		: 'Show host controls');
 	hostControlsToggle.setAttribute('aria-pressed', String(!hostControlsVisible));
 	parameterPanel.hidden = !hostControlsVisible;
-	interfaceFrame.hidden = hostControlsVisible;
+	interfaceSurface.hidden = hostControlsVisible;
 }
 
 function cancelMIDIMap() {
@@ -603,7 +786,6 @@ function renderPluginInfo() {
 		return;
 	}
 
-	document.title = descriptor.name || 'Compost';
 	$('#plugin-name').textContent = descriptor.name || 'Compost';
 	pluginInfoToggle.hidden = false;
 	const infoVisible = !pluginInfoPanel.hidden;
@@ -665,7 +847,6 @@ async function start(context) {
 
 	const hasAudioInput = (node.capabilities.audioInputs || []).length > 0;
 
-	document.title = node.descriptor.name;
 	$('#plugin-name').textContent = node.descriptor.name;
 	effectControls.hidden = !hasAudioInput;
 	effectNode = node;
@@ -704,13 +885,16 @@ async function start(context) {
 	node.connect(context.destination);
 
 	if (node.openInterface) {
-		interfaceFrame = openPluginInterface(node, pageProxy);
+		interfaceFrame = await openPluginInterface(node, pageProxy);
+		interfaceSurface = interfaceFrame.interfaceSurface;
 		bindInterfaceKeyboard(interfaceFrame);
-		main.prepend(interfaceFrame);
+		main.prepend(interfaceSurface);
+		await configurePluginInterface(node, interfaceFrame);
 	}
 	setupMIDI(node);
 	await setupParameters(node);
 	await setupPresets(node);
+	await interfaceFrame?.fitInterfaceToViewport?.();
 	renderPluginInfo();
 	setStatus('');
 
@@ -742,7 +926,8 @@ function unloadPlugin() {
 	const replacementAudioElement = audioElement.cloneNode();
 	audioElement.replaceWith(replacementAudioElement);
 	audioElement = replacementAudioElement;
-	previousNode?.closeInterface?.();
+	const closeInterfacePromise = previousNode?.closeInterface?.();
+	closeInterfacePromise?.catch(() => {});
 	midiMappings?.cancelLearn?.();
 	midiMap.mappings = null;
 	midiMapToggle.pressed = false;
@@ -756,9 +941,11 @@ function unloadPlugin() {
 	hostKeyboard.allNotesOff();
 	hostKeyboard.hidden = true;
 	document.body.removeAttribute('data-host-keyboard');
+	interfaceFrame?.interfaceCleanup?.();
 	unbindInterfaceKeyboard(interfaceFrame);
-	interfaceFrame?.remove();
+	interfaceSurface?.remove();
 	interfaceFrame = null;
+	interfaceSurface = null;
 	audioSource = null;
 	effectControls.hidden = true;
 	midiSlot.replaceChildren();

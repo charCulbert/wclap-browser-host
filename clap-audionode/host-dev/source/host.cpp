@@ -62,6 +62,14 @@ extern "C" {
 		auto cbor = bytes->write();
 		return plugin->getResource(pathStr, cbor);
 	}
+	void WASM_FN(pluginGuiSetOpen)(HostedPlugin *plugin, bool open, bool visible, Bytes *bytes) {
+		auto cbor = bytes->write();
+		plugin->setGuiOpen(open, visible, cbor);
+	}
+	void WASM_FN(pluginGuiSetSize)(HostedPlugin *plugin, uint32_t width, uint32_t height, Bytes *bytes) {
+		auto cbor = bytes->write();
+		plugin->setGuiSize(width, height, cbor);
+	}
 	void WASM_FN(pluginGetParams)(HostedPlugin *plugin, Bytes *bytes) {
 		auto cbor = bytes->write();
 		plugin->getParams(cbor);
