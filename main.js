@@ -258,22 +258,14 @@ function mappingIndication(node, mapping, hasMapping) {
 async function installMapping(node, mapping) {
 	const parameterID = String(mapping.parameterID);
 	const previous = midiMappings.get(parameterID);
-	const conflicts = midiMappings.all().filter(candidate =>
-		candidate.parameterID !== parameterID
-		&& candidate.cc === mapping.cc
-		&& candidate.channel === mapping.channel);
-	const replaced = [previous, ...conflicts].filter(Boolean);
 
 	try {
-		for (const oldMapping of replaced)
-			await node.clearMidiCCMapping(workletMapping(node, oldMapping));
+		if (previous) await node.clearMidiCCMapping(workletMapping(node, previous));
 		await node.setMidiCCMapping(workletMapping(node, mapping));
 		midiMappings.applyMapping(mapping);
 		if (midiMap.mappingMode && midiMap.target?.parameterID === parameterID)
 			mappingTarget(parameterID, midiMap.target.name);
-		for (const oldMapping of conflicts) midiMappings.applyClear(oldMapping.parameterID);
-		for (const oldMapping of replaced)
-			await mappingIndication(node, oldMapping, false);
+		if (previous) await mappingIndication(node, previous, false);
 		await mappingIndication(node, mapping, true);
 	} catch (error) {
 		showError(error);
