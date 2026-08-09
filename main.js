@@ -632,6 +632,7 @@ async function start(context) {
 	setStatus('Loading WCLAP plug-in…');
 	await pluginsReady;
 	if (requestedGeneration !== loadGeneration || requestedWclap !== wclap) return;
+	if (!pageProxyReady) throw new Error('This browser context does not support Service Workers.');
 	const pageProxy = await pageProxyReady;
 	const node = await requestedWclap.createNode(context, pluginId, {
 		numberOfInputs: 1,

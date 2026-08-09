@@ -1,4 +1,4 @@
-import {getHost, startHost, getWclap} from "./wclap-js/wclap.mjs";
+import {getHost, startHost, getWclap, maximumMemoryPages} from "./wclap-js/wclap.mjs";
 import {hostImports, startThreadWorker} from "./host-imports.mjs";
 import CBOR from "./cbor.mjs";
 import {midiFrameFromTimestamp, SharedMidiEventQueue} from "./midi-event.mjs";
@@ -10,7 +10,7 @@ function cloneMemory(memory, memorySpec = {}) {
 		&& memory.buffer instanceof SharedArrayBuffer;
 	return new WebAssembly.Memory({
 		initial: Math.max(1, Math.ceil(memory.buffer.byteLength / 65536)),
-		maximum: memorySpec.maximum ?? 32768,
+		maximum: memorySpec.maximum ?? maximumMemoryPages,
 		shared,
 	});
 }

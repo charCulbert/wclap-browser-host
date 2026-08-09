@@ -14,7 +14,10 @@ Then assign a lookup function:
 */
 if (typeof ServiceWorkerGlobalScope !== "function") {
 	// Included via <script> - register itself as a service worker
-	this.pageProxyReady = (async serviceWorker => {
+	if (!navigator.serviceWorker) {
+		this.pageProxyReady = null;
+	} else {
+		this.pageProxyReady = (async serviceWorker => {
 		let scriptUrl = document.currentScript?.src;
 		if (!serviceWorker.controller) {
 			// either there's no controller (no registrations), or it's a hard-refresh (existing registrations will be bypassed, so remove them)
@@ -71,7 +74,8 @@ if (typeof ServiceWorkerGlobalScope !== "function") {
 			}
 			check();
 		});
-	})(navigator.serviceWorker);
+		})(navigator.serviceWorker);
+	}
 } else {
 	// The actual Service Worker
 
