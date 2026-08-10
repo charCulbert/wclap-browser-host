@@ -631,7 +631,8 @@ class ClapAudioWorkletProcessor extends AudioWorkletProcessor {
 	
 	process(inputs, outputs, parameters) {
 		let jsStartTime = now();
-		if (this.fatalError || !this.running || !this.ready) return false; // outputs are pre-filled with silence
+		if (this.fatalError || !this.running) return false;
+		if (!this.ready) return true; // outputs are pre-filled with silence
 
 		let blockLength = (outputs[0] || inputs[0])[0].length;
 		
