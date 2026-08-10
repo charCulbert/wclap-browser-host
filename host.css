@@ -76,27 +76,26 @@ h1, h2, p { margin: 0; }
 
 .host-toolbar compost-audio {
   --compost-audio-button-size: calc(var(--toolbar-height) - 1px);
+  --compost-audio-button-font-size: 20px;
   --compost-audio-button-border: transparent;
   --compost-audio-button-border-width: 0;
   --compost-audio-ring-width: 0;
   --compost-audio-ring-space: 0;
   --compost-audio-focus-bracket-offset: 0px;
   --compost-audio-focus-bracket-pulse-offset: 0px;
-  --compost-button-width: calc(var(--toolbar-height) - 1px);
-  --compost-button-height: calc(var(--toolbar-height) - 1px);
   height: calc(var(--toolbar-height) - 1px);
-  font-size: 20px;
 }
 
 .host-toolbar compost-audio[centered-while-off]:not([running]) {
-  --compost-audio-button-size: 88px;
-  --compost-button-width: 88px;
-  --compost-button-height: 88px;
+  --compost-audio-button-size: 96px;
+  --compost-audio-button-font-size: 34px;
   --compost-audio-button-border: var(--text);
   --compost-audio-button-border-width: 3px;
   --compost-audio-ring-width: 2px;
   --compost-audio-ring-space: 10px;
+  --compost-audio-centered-placeholder-width: calc(var(--toolbar-height) - 1px);
   --compost-audio-centered-placeholder-height: calc(var(--toolbar-height) - 1px);
+  --compost-audio-modal-scrim: rgba(8, 9, 8, 0.88);
 }
 
 .host-toolbar compost-audio::part(power-button),

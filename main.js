@@ -1,5 +1,5 @@
 import ClapAudioNode from './clap-audionode/clap-audionode.mjs?v=20260808-audio-restart2';
-import './compost/src/components/compost-audio.js?v=20260808-audio-default';
+import './compost/src/components/compost-audio.js?v=20260810-centered-audio';
 import './compost/src/components/compost-button.js';
 import './compost/src/components/compost-drawer.js';
 import './compost/src/components/compost-midi.js';
